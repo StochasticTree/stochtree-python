@@ -3,7 +3,11 @@
 ## Getting started
 
 The python package can be installed from source. Before you begin, make sure you have [conda](https://www.anaconda.com/download) installed.
-Clone the repo following the instructions in [the "cloning the repository" section](#cloning-the-repository) above.
+Clone the repo recursively (including git submodules) by running 
+
+```{bash}
+git clone --recursive https://github.com/StochasticTree/stochtree-python.git
+```
 
 Next, create and activate a conda environment with the requisite dependencies
 
