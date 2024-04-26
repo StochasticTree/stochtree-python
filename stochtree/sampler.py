@@ -18,14 +18,17 @@ class ForestSampler:
         self.forest_sampler_cpp = ForestSamplerCpp(dataset.dataset_cpp, feature_types, num_trees, num_obs, alpha, beta, min_samples_leaf)
     
     def sample_one_iteration(self, forest_container: ForestContainer, dataset: Dataset, residual: Residual, rng: RNG, 
-                           feature_types: np.array, cutpoint_grid_size: int, leaf_model_scale_input: np.array, 
-                           variable_weights: np.array, global_variance: float, leaf_model_int: int, gfr: bool):
+                             feature_types: np.array, cutpoint_grid_size: int, leaf_model_scale_input: np.array, 
+                             variable_weights: np.array, global_variance: float, leaf_model_int: int, gfr: bool, pre_initialized: bool):
         """
         Sample one iteration of a forest using the specified model and tree sampling algorithm
         """
         self.forest_sampler_cpp.SampleOneIteration(forest_container.forest_container_cpp, dataset.dataset_cpp, residual.residual_cpp, rng.rng_cpp, 
                                                    feature_types, cutpoint_grid_size, leaf_model_scale_input, variable_weights, 
-                                                   global_variance, leaf_model_int, gfr)
+                                                   global_variance, leaf_model_int, gfr, pre_initialized)
+    
+    def update_residual(self, dataset: Dataset, residual: Residual, forest_container: ForestContainer, requires_basis: bool, forest_num: int, add: bool) -> None:
+        forest_container.forest_container_cpp.UpdateResidual(dataset.dataset_cpp, residual.residual_cpp, self.forest_sampler_cpp, requires_basis, forest_num, add)
 
 
 class GlobalVarianceModel:

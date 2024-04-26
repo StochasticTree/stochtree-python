@@ -4,5 +4,9 @@ requires = [
     "wheel",
     "ninja",
     "cmake>=3.12",
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn"
 ]
 build-backend = "setuptools.build_meta"
