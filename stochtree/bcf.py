@@ -376,6 +376,12 @@ class BCFModel:
         return self.forest_container_mu.forest_container_cpp.Predict(dataset.dataset_cpp)*self.y_std + self.y_bar
     
     def predict_tau(self, X: np.array, Z: np.array) -> np.array:
+        if not self.is_sampled():
+            msg = (
+                "This BCFModel instance is not fitted yet. Call 'fit' with "
+                "appropriate arguments before using this model."
+            )
+            raise NotSampledError(msg)
         dataset = Dataset()
         dataset.add_covariates(X)
         dataset.add_basis(Z)
@@ -386,6 +392,12 @@ class BCFModel:
         return tau_x
     
     def predict(self, X: np.array, Z: np.array, propensity: np.array) -> np.array:
+        if not self.is_sampled():
+            msg = (
+                "This BCFModel instance is not fitted yet. Call 'fit' with "
+                "appropriate arguments before using this model."
+            )
+            raise NotSampledError(msg)
         mu_dataset = Dataset()
         Xtilde = np.c_[X, propensity]
         mu_dataset.add_covariates(Xtilde)
