@@ -142,12 +142,14 @@ class ForestContainerCpp {
 
     // Convert result to a matrix
     auto result = py::array_t<double>(py::detail::any_container<ssize_t>({n, num_samples}));
-    py::buffer_info buf = result.request();
-    double *ptr = static_cast<double *>(buf.ptr);
+    auto accessor = result.mutable_unchecked<2>();
+    // py::buffer_info buf = result.request();
+    // double *ptr = static_cast<double *>(buf.ptr);
     for (size_t i = 0; i < n; i++) {
       for (int j = 0; j < num_samples; j++) {
         // NOTE: converting from "column-major" to "row-major" here
-        ptr[i*num_samples + j] = output_raw[j*n + i];
+        accessor(i,j) = output_raw[j*n + i];
+        // ptr[i*num_samples + j] = output_raw[j*n + i];
       }
     }
 
@@ -164,12 +166,14 @@ class ForestContainerCpp {
 
     // Convert result to 3 dimensional array (n x num_samples x output_dim)
     auto result = py::array_t<double>(py::detail::any_container<ssize_t>({n, num_samples, output_dim}));
-    py::buffer_info buf = result.request();
-    double *ptr = static_cast<double *>(buf.ptr);
+    auto accessor = result.mutable_unchecked<3>();
+    // py::buffer_info buf = result.request();
+    // double *ptr = static_cast<double *>(buf.ptr);
     for (size_t i = 0; i < n; i++) {
       for (int j = 0; j < output_dim; j++) {
         for (int k = 0; k < num_samples; k++) {
-          ptr[i*(output_dim*num_samples) + j*output_dim + k] = output_raw[k*(output_dim*n) + i*output_dim + j];
+          accessor(i,j,k) = output_raw[k*(output_dim*n) + i*output_dim + j];
+          // ptr[i*(output_dim*num_samples) + j*output_dim + k] = output_raw[k*(output_dim*n) + i*output_dim + j];
         }
       }
     }
@@ -187,11 +191,13 @@ class ForestContainerCpp {
 
     // Convert result to a matrix
     auto result = py::array_t<double>(py::detail::any_container<ssize_t>({n, output_dim}));
-    py::buffer_info buf = result.request();
-    double *ptr = static_cast<double *>(buf.ptr);
+    auto accessor = result.mutable_unchecked<2>();
+    // py::buffer_info buf = result.request();
+    // double *ptr = static_cast<double *>(buf.ptr);
     for (size_t i = 0; i < n; i++) {
       for (int j = 0; j < output_dim; j++) {
-        ptr[i*output_dim + j] = output_raw[i*output_dim + j];
+        accessor(i,j) = output_raw[i*output_dim + j];
+        // ptr[i*output_dim + j] = output_raw[i*output_dim + j];
       }
     }
 
