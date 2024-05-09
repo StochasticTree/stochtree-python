@@ -43,7 +43,6 @@ class Dataset:
         n = variance_weights.size
         self.dataset_cpp.AddVarianceWeights(variance_weights, n)
 
-
 class Residual:
     def __init__(self, residual: np.array) -> None:
         # Initialize a ResidualCpp object

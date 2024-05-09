@@ -25,9 +25,9 @@ class BCFModel:
                alpha_mu: float = 0.95, alpha_tau: float = 0.25, beta_mu: float = 2.0, beta_tau: float = 3.0, 
                min_samples_leaf_mu: int = 5, min_samples_leaf_tau: int = 5, nu: float = 3, lamb: float = None, 
                a_leaf_mu: float = 3, a_leaf_tau: float = 3, b_leaf_mu: float = None, b_leaf_tau: float = None, 
-               q: float = 0.9, sigma2: float = None, num_trees_mu: int = 250, num_trees_tau: int = 50, 
+               q: float = 0.9, sigma2: float = None, num_trees_mu: int = 200, num_trees_tau: int = 50, 
                num_gfr: int = 5, num_burnin: int = 0, num_mcmc: int = 100, sample_sigma_global: bool = True, 
-               sample_sigma_leaf_mu: bool = True, sample_sigma_leaf_tau: bool = True, propensity_covariate: str = "mu", 
+               sample_sigma_leaf_mu: bool = True, sample_sigma_leaf_tau: bool = False, propensity_covariate: str = "mu", 
                adaptive_coding: bool = True, b_0: float = -0.5, b_1: float = 0.5, random_seed: int = -1) -> None:
         # Convert everything to standard shape (2-dimensional)
         if X_train.ndim == 1:
@@ -141,9 +141,9 @@ class BCFModel:
 
         # Calibrate priors for global sigma^2 and sigma_leaf_mu / sigma_leaf_tau
         if lamb is None:
-            reg_basis = X_train
+            reg_basis = np.c_[np.ones(self.n_train),X_train]
             reg_soln = lstsq(reg_basis, np.squeeze(resid_train))
-            sigma2hat = reg_soln[1]
+            sigma2hat = reg_soln[1] / self.n_train
             quantile_cutoff = 0.9
             lamb = (sigma2hat*gamma.ppf(1-quantile_cutoff,nu))/nu
         sigma2 = sigma2hat if sigma2 is None else sigma2
@@ -249,8 +249,8 @@ class BCFModel:
 
                 # Sample variance parameters (if requested)
                 if self.sample_sigma_global:
-                    self.global_var_samples[i] = global_var_model.sample_one_iteration(residual_train, cpp_rng, nu, lamb)                    
-                    current_sigma2 = self.global_var_samples[i]
+                    current_sigma2 = global_var_model.sample_one_iteration(residual_train, cpp_rng, nu, lamb)
+                    self.global_var_samples[i] = current_sigma2*self.y_std*self.y_std
                 if self.sample_sigma_leaf_mu:
                     self.leaf_scale_mu_samples[i] = leaf_var_model_mu.sample_one_iteration(self.forest_container_mu, cpp_rng, a_leaf_mu, b_leaf_mu, i)
                     current_leaf_scale_mu[0,0] = self.leaf_scale_mu_samples[i]
@@ -258,34 +258,34 @@ class BCFModel:
                 # Sample the treatment forest
                 forest_sampler_tau.sample_one_iteration(
                     self.forest_container_tau, forest_dataset_tau_train, residual_train, cpp_rng, feature_types_tau, 
-                    cutpoint_grid_size, current_leaf_scale_tau, variable_weights_tau, current_sigma2, 0, True, True
+                    cutpoint_grid_size, current_leaf_scale_tau, variable_weights_tau, current_sigma2, 1, True, True
                 )
                 
                 # Sample variance parameters (if requested)
                 if self.sample_sigma_global:
-                    self.global_var_samples[i] = global_var_model.sample_one_iteration(residual_train, cpp_rng, nu, lamb)                    
-                    current_sigma2 = self.global_var_samples[i]
+                    current_sigma2 = global_var_model.sample_one_iteration(residual_train, cpp_rng, nu, lamb)
+                    self.global_var_samples[i] = current_sigma2*self.y_std*self.y_std
                 if self.sample_sigma_leaf_tau:
                     self.leaf_scale_tau_samples[i] = leaf_var_model_tau.sample_one_iteration(self.forest_container_tau, cpp_rng, a_leaf_tau, b_leaf_tau, i)
-                    current_leaf_scale_tau[0,0] = self.leaf_scale_tau_samples[i]                
+                    current_leaf_scale_tau[0,0] = self.leaf_scale_tau_samples[i]
                 
                 # Sample coding parameters (if requested)
                 if self.adaptive_coding:
                     mu_x = self.forest_container_mu.predict_raw_single_forest(forest_dataset_mu_train, i)
                     tau_x = np.squeeze(self.forest_container_tau.predict_raw_single_forest(forest_dataset_tau_train, i))
-                    s_tt0 = np.sum(tau_x*tau_x*(Z_train==0))
-                    s_tt1 = np.sum(tau_x*tau_x*(Z_train==1))
-                    partial_resid_mu = resid_train - np.squeeze(mu_x)
-                    s_ty0 = np.sum(tau_x*partial_resid_mu*(Z_train==0))
-                    s_ty1 = np.sum(tau_x*partial_resid_mu*(Z_train==1))
-                    current_b_0 = self.rng.normal(loc = (s_ty0/(s_tt0 + 2*self.global_var_samples[i])), 
-                                             scale = np.sqrt(self.global_var_samples[i]/(s_tt0 + 2*self.global_var_samples[i])), size = 1)
-                    current_b_1 = self.rng.normal(loc = (s_ty1/(s_tt1 + 2*self.global_var_samples[i])), 
-                                             scale = np.sqrt(self.global_var_samples[i]/(s_tt1 + 2*self.global_var_samples[i])), size = 1)
-                    tau_basis_train = (1-Z_train)*current_b_0 + Z_train*current_b_1
+                    s_tt0 = np.sum(tau_x*tau_x*(np.squeeze(Z_train)==0))
+                    s_tt1 = np.sum(tau_x*tau_x*(np.squeeze(Z_train)==1))
+                    partial_resid_mu = np.squeeze(resid_train - mu_x)
+                    s_ty0 = np.sum(tau_x*partial_resid_mu*(np.squeeze(Z_train)==0))
+                    s_ty1 = np.sum(tau_x*partial_resid_mu*(np.squeeze(Z_train)==1))
+                    current_b_0 = self.rng.normal(loc = (s_ty0/(s_tt0 + 2*current_sigma2)), 
+                                             scale = np.sqrt(current_sigma2/(s_tt0 + 2*current_sigma2)), size = 1)
+                    current_b_1 = self.rng.normal(loc = (s_ty1/(s_tt1 + 2*current_sigma2)), 
+                                             scale = np.sqrt(current_sigma2/(s_tt1 + 2*current_sigma2)), size = 1)
+                    tau_basis_train = (1-np.squeeze(Z_train))*current_b_0 + np.squeeze(Z_train)*current_b_1
                     forest_dataset_tau_train.update_basis(tau_basis_train)
                     if self.has_test:
-                        tau_basis_test = (1-Z_test)*current_b_0 + Z_test*current_b_1
+                        tau_basis_test = (1-np.squeeze(Z_test))*current_b_0 + np.squeeze(Z_test)*current_b_1
                         forest_dataset_tau_test.update_basis(tau_basis_test)
                     self.b0_samples[i] = current_b_0
                     self.b1_samples[i] = current_b_1
@@ -301,8 +301,8 @@ class BCFModel:
 
                 # Sample variance parameters (if requested)
                 if self.sample_sigma_global:
-                    self.global_var_samples[i] = global_var_model.sample_one_iteration(residual_train, cpp_rng, nu, lamb)                    
-                    current_sigma2 = self.global_var_samples[i]
+                    current_sigma2 = global_var_model.sample_one_iteration(residual_train, cpp_rng, nu, lamb)
+                    self.global_var_samples[i] = current_sigma2*self.y_std*self.y_std
                 if self.sample_sigma_leaf_mu:
                     self.leaf_scale_mu_samples[i] = leaf_var_model_mu.sample_one_iteration(self.forest_container_mu, cpp_rng, a_leaf_mu, b_leaf_mu, i)
                     current_leaf_scale_mu[0,0] = self.leaf_scale_mu_samples[i]
@@ -310,13 +310,13 @@ class BCFModel:
                 # Sample the treatment forest
                 forest_sampler_tau.sample_one_iteration(
                     self.forest_container_tau, forest_dataset_tau_train, residual_train, cpp_rng, feature_types_tau, 
-                    cutpoint_grid_size, current_leaf_scale_tau, variable_weights_tau, current_sigma2, 0, False, True
+                    cutpoint_grid_size, current_leaf_scale_tau, variable_weights_tau, current_sigma2, 1, False, True
                 )
                 
                 # Sample variance parameters (if requested)
                 if self.sample_sigma_global:
-                    self.global_var_samples[i] = global_var_model.sample_one_iteration(residual_train, cpp_rng, nu, lamb)                    
-                    current_sigma2 = self.global_var_samples[i]
+                    current_sigma2 = global_var_model.sample_one_iteration(residual_train, cpp_rng, nu, lamb)
+                    self.global_var_samples[i] = current_sigma2*self.y_std*self.y_std
                 if self.sample_sigma_leaf_tau:
                     self.leaf_scale_tau_samples[i] = leaf_var_model_tau.sample_one_iteration(self.forest_container_tau, cpp_rng, a_leaf_tau, b_leaf_tau, i)
                     current_leaf_scale_tau[0,0] = self.leaf_scale_tau_samples[i]                
@@ -325,19 +325,19 @@ class BCFModel:
                 if self.adaptive_coding:
                     mu_x = self.forest_container_mu.predict_raw_single_forest(forest_dataset_mu_train, i)
                     tau_x = np.squeeze(self.forest_container_tau.predict_raw_single_forest(forest_dataset_tau_train, i))
-                    s_tt0 = np.sum(tau_x*tau_x*(Z_train==0))
-                    s_tt1 = np.sum(tau_x*tau_x*(Z_train==1))
-                    partial_resid_mu = resid_train - np.squeeze(mu_x)
-                    s_ty0 = np.sum(tau_x*partial_resid_mu*(Z_train==0))
-                    s_ty1 = np.sum(tau_x*partial_resid_mu*(Z_train==1))
-                    current_b_0 = self.rng.normal(loc = (s_ty0/(s_tt0 + 2*self.global_var_samples[i])), 
-                                             scale = np.sqrt(self.global_var_samples[i]/(s_tt0 + 2*self.global_var_samples[i])), size = 1)
-                    current_b_1 = self.rng.normal(loc = (s_ty1/(s_tt1 + 2*self.global_var_samples[i])), 
-                                             scale = np.sqrt(self.global_var_samples[i]/(s_tt1 + 2*self.global_var_samples[i])), size = 1)
-                    tau_basis_train = (1-Z_train)*current_b_0 + Z_train*current_b_1
+                    s_tt0 = np.sum(tau_x*tau_x*(np.squeeze(Z_train)==0))
+                    s_tt1 = np.sum(tau_x*tau_x*(np.squeeze(Z_train)==1))
+                    partial_resid_mu = np.squeeze(resid_train - mu_x)
+                    s_ty0 = np.sum(tau_x*partial_resid_mu*(np.squeeze(Z_train)==0))
+                    s_ty1 = np.sum(tau_x*partial_resid_mu*(np.squeeze(Z_train)==1))
+                    current_b_0 = self.rng.normal(loc = (s_ty0/(s_tt0 + 2*current_sigma2)), 
+                                             scale = np.sqrt(current_sigma2/(s_tt0 + 2*current_sigma2)), size = 1)
+                    current_b_1 = self.rng.normal(loc = (s_ty1/(s_tt1 + 2*current_sigma2)), 
+                                             scale = np.sqrt(current_sigma2/(s_tt1 + 2*current_sigma2)), size = 1)
+                    tau_basis_train = (1-np.squeeze(Z_train))*current_b_0 + np.squeeze(Z_train)*current_b_1
                     forest_dataset_tau_train.update_basis(tau_basis_train)
                     if self.has_test:
-                        tau_basis_test = (1-Z_test)*current_b_0 + Z_test*current_b_1
+                        tau_basis_test = (1-np.squeeze(Z_test))*current_b_0 + np.squeeze(Z_test)*current_b_1
                         forest_dataset_tau_test.update_basis(tau_basis_test)
                     self.b0_samples[i] = current_b_0
                     self.b1_samples[i] = current_b_1
@@ -346,18 +346,22 @@ class BCFModel:
         self.sampled = True
         
         # Store predictions
-        self.mu_hat_train = self.forest_container_mu.forest_container_cpp.Predict(forest_dataset_mu_train.dataset_cpp)*self.y_std + self.y_bar
+        mu_raw = self.forest_container_mu.forest_container_cpp.Predict(forest_dataset_mu_train.dataset_cpp)
+        self.mu_hat_train = mu_raw*self.y_std + self.y_bar
         tau_raw = self.forest_container_tau.forest_container_cpp.PredictRaw(forest_dataset_tau_train.dataset_cpp)
         self.tau_hat_train = tau_raw*self.y_std
         if self.adaptive_coding:
-            self.tau_hat_train = self.tau_hat_train*np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+            adaptive_coding_weights = np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+            self.tau_hat_train = self.tau_hat_train*adaptive_coding_weights
         self.y_hat_train = self.mu_hat_train + Z_train*np.squeeze(self.tau_hat_train)
         if self.has_test:
-            self.mu_hat_test = self.forest_container_mu.forest_container_cpp.Predict(forest_dataset_mu_test.dataset_cpp)*self.y_std + self.y_bar
-            tau_raw = self.forest_container_tau.forest_container_cpp.PredictRaw(forest_dataset_tau_test.dataset_cpp)
-            self.tau_hat_test = tau_raw*self.y_std
+            mu_raw_test = self.forest_container_mu.forest_container_cpp.Predict(forest_dataset_mu_test.dataset_cpp)
+            self.mu_hat_test = mu_raw_test*self.y_std + self.y_bar
+            tau_raw_test = self.forest_container_tau.forest_container_cpp.PredictRaw(forest_dataset_tau_test.dataset_cpp)
+            self.tau_hat_test = tau_raw_test*self.y_std
             if self.adaptive_coding:
-                self.tau_hat_test = self.tau_hat_test*np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+                adaptive_coding_weights_test = np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+                self.tau_hat_test = self.tau_hat_test*adaptive_coding_weights_test
             self.y_hat_test = self.mu_hat_test + Z_test*np.squeeze(self.tau_hat_test)
     
     def predict_mu(self, X: np.array) -> np.array:
@@ -385,7 +389,6 @@ class BCFModel:
         mu_dataset = Dataset()
         Xtilde = np.c_[X, propensity]
         mu_dataset.add_covariates(Xtilde)
-        mu_dataset.add_basis(Z)
         tau_dataset = Dataset()
         tau_dataset.add_covariates(X)
         tau_dataset.add_basis(Z)
