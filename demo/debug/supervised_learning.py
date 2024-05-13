@@ -9,7 +9,6 @@ from stochtree import BARTModel
 from sklearn.model_selection import train_test_split
 
 # Generate sample data
-
 # RNG
 random_seed = 1234
 rng = np.random.default_rng(random_seed)
@@ -53,9 +52,11 @@ basis_test = W[test_inds,:]
 y_train = y[train_inds]
 y_test = y[test_inds]
 
+## Demo 1: Using `W` in a linear leaf regression
+
 # Run BART
 bart_model = BARTModel()
-bart_model.sample(X_train, basis_train, y_train, X_test, basis_test, num_gfr=10, num_mcmc=100)
+bart_model.sample(X_train=X_train, y_train=y_train, basis_train=basis_train, X_test=X_test, basis_test=basis_test, num_gfr=10, num_mcmc=100)
 
 # Inspect the MCMC (BART) samples
 forest_preds_y_mcmc = bart_model.y_hat_test[:,bart_model.num_gfr:]
@@ -64,6 +65,54 @@ y_df_mcmc = pd.DataFrame(np.concatenate((np.expand_dims(y_test,1), y_avg_mcmc), 
 sns.scatterplot(data=y_df_mcmc, x="Average estimated outcome", y="True outcome")
 plt.axline((0, 0), slope=1, color="black", linestyle=(0, (3,3)))
 plt.show()
+
 sigma_df_mcmc = pd.DataFrame(np.concatenate((np.expand_dims(np.arange(bart_model.num_samples - bart_model.num_gfr),axis=1), np.expand_dims(bart_model.global_var_samples[bart_model.num_gfr:],axis=1)), axis = 1), columns=["Sample", "Sigma"])
 sns.scatterplot(data=sigma_df_mcmc, x="Sample", y="Sigma")
 plt.show()
+
+# Compute the test set RMSE
+np.sqrt(np.mean(np.power(y_test - np.squeeze(y_avg_mcmc),2)))
+
+## Demo 2: Including `W` as a covariate in the standard "constant leaf" BART model
+
+# Run BART
+bart_model = BARTModel()
+X_train_aug = np.c_[X_train, basis_train]
+X_test_aug = np.c_[X_test, basis_test]
+bart_model.sample(X_train=X_train_aug, y_train=y_train, X_test=X_test_aug, num_gfr=10, num_mcmc=100)
+
+# Inspect the MCMC (BART) samples
+forest_preds_y_mcmc = bart_model.y_hat_test[:,bart_model.num_gfr:]
+y_avg_mcmc = np.squeeze(forest_preds_y_mcmc).mean(axis = 1, keepdims = True)
+y_df_mcmc = pd.DataFrame(np.concatenate((np.expand_dims(y_test,1), y_avg_mcmc), axis = 1), columns=["True outcome", "Average estimated outcome"])
+sns.scatterplot(data=y_df_mcmc, x="Average estimated outcome", y="True outcome")
+plt.axline((0, 0), slope=1, color="black", linestyle=(0, (3,3)))
+plt.show()
+
+sigma_df_mcmc = pd.DataFrame(np.concatenate((np.expand_dims(np.arange(bart_model.num_samples - bart_model.num_gfr),axis=1), np.expand_dims(bart_model.global_var_samples[bart_model.num_gfr:],axis=1)), axis = 1), columns=["Sample", "Sigma"])
+sns.scatterplot(data=sigma_df_mcmc, x="Sample", y="Sigma")
+plt.show()
+
+# Compute the test set RMSE
+np.sqrt(np.mean(np.power(y_test - np.squeeze(y_avg_mcmc),2)))
+
+## Demo 3: Omitting `W` entirely
+
+# Run BART
+bart_model = BARTModel()
+bart_model.sample(X_train=X_train, y_train=y_train, X_test=X_test, num_gfr=10, num_mcmc=100)
+
+# Inspect the MCMC (BART) samples
+forest_preds_y_mcmc = bart_model.y_hat_test[:,bart_model.num_gfr:]
+y_avg_mcmc = np.squeeze(forest_preds_y_mcmc).mean(axis = 1, keepdims = True)
+y_df_mcmc = pd.DataFrame(np.concatenate((np.expand_dims(y_test,1), y_avg_mcmc), axis = 1), columns=["True outcome", "Average estimated outcome"])
+sns.scatterplot(data=y_df_mcmc, x="Average estimated outcome", y="True outcome")
+plt.axline((0, 0), slope=1, color="black", linestyle=(0, (3,3)))
+plt.show()
+
+sigma_df_mcmc = pd.DataFrame(np.concatenate((np.expand_dims(np.arange(bart_model.num_samples - bart_model.num_gfr),axis=1), np.expand_dims(bart_model.global_var_samples[bart_model.num_gfr:],axis=1)), axis = 1), columns=["Sample", "Sigma"])
+sns.scatterplot(data=sigma_df_mcmc, x="Sample", y="Sigma")
+plt.show()
+
+# Compute the test set RMSE
+np.sqrt(np.mean(np.power(y_test - np.squeeze(y_avg_mcmc),2)))
