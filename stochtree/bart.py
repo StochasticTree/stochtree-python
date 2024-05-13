@@ -19,7 +19,7 @@ class BARTModel:
     def is_sampled(self) -> bool:
         return self.sampled
     
-    def sample(self, X_train: np.array, basis_train: np.array, y_train: np.array, X_test: np.array = None, basis_test: np.array = None, 
+    def sample(self, X_train: np.array, y_train: np.array, basis_train: np.array = None, X_test: np.array = None, basis_test: np.array = None, 
                feature_types: np.array = None, cutpoint_grid_size = 100, sigma_leaf: float = None, alpha: float = 0.95, beta: float = 2.0, 
                min_samples_leaf: int = 5, nu: float = 3, lamb: float = None, a_leaf: float = 3, b_leaf: float = None, q: float = 0.9, 
                sigma2: float = None, num_trees: int = 200, num_gfr: int = 5, num_burnin: int = 0, num_mcmc: int = 100, 
@@ -27,8 +27,9 @@ class BARTModel:
         # Convert everything to standard shape (2-dimensional)
         if X_train.ndim == 1:
             X_train = np.expand_dims(X_train, 1)
-        if basis_train.ndim == 1:
-            basis_train = np.expand_dims(basis_train, 1)
+        if basis_train is not None:
+            if basis_train.ndim == 1:
+                basis_train = np.expand_dims(basis_train, 1)
         if y_train.ndim == 1:
             y_train = np.expand_dims(y_train, 1)
         if X_test is not None:
@@ -48,8 +49,9 @@ class BARTModel:
                     raise ValueError("basis_train and basis_test must have the same number of columns")
             else:
                 raise ValueError("basis_test provided but basis_train was not")
-        if basis_train.shape[0] != X_train.shape[0]:
-            raise ValueError("basis_train and Z_train must have the same number of rows")
+        if basis_train is not None:
+            if basis_train.shape[0] != X_train.shape[0]:
+                raise ValueError("basis_train and Z_train must have the same number of rows")
         if y_train.shape[0] != X_train.shape[0]:
             raise ValueError("X_train and y_train must have the same number of rows")
         if X_test is not None and basis_test is not None:
@@ -61,7 +63,7 @@ class BARTModel:
 
         # Determine whether a basis is provided
         self.has_basis = basis_train is not None
-        
+
         # Unpack data dimensions
         self.n_train = y_train.shape[0]
         self.n_test = X_test.shape[0] if self.has_test else 0
@@ -108,11 +110,13 @@ class BARTModel:
         # Forest Dataset (covariates and optional basis)
         forest_dataset_train = Dataset()
         forest_dataset_train.add_covariates(X_train)
-        forest_dataset_train.add_basis(basis_train)
+        if self.has_basis:
+            forest_dataset_train.add_basis(basis_train)
         if self.has_test:
             forest_dataset_test = Dataset()
             forest_dataset_test.add_covariates(X_test)
-            forest_dataset_test.add_basis(basis_test)
+            if self.has_basis:
+                forest_dataset_test.add_basis(basis_test)
 
         # Residual
         residual_train = Residual(resid_train)
