@@ -1,8 +1,5 @@
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
-from sklearn.model_selection import GridSearchCV, KFold
-from typing import Optional
 from scipy.linalg import lstsq
 from scipy.stats import gamma
 from .data import Dataset, Residual
@@ -11,7 +8,7 @@ from .sampler import ForestSampler, RNG, GlobalVarianceModel, LeafVarianceModel
 from .utils import NotSampledError
 
 class BARTModel:
-    """Samples BART models and stores forests for prediction and serialization
+    """Class that handles sampling, storage, and serialization of stochastic forest models like BART, XBART, and Warm-Start BART
     """
 
     def __init__(self) -> None:
@@ -26,7 +23,8 @@ class BARTModel:
                feature_types: np.array = None, cutpoint_grid_size = 100, sigma_leaf: float = None, alpha: float = 0.95, beta: float = 2.0, 
                min_samples_leaf: int = 5, nu: float = 3, lamb: float = None, a_leaf: float = 3, b_leaf: float = None, q: float = 0.9, 
                sigma2: float = None, num_trees: int = 200, num_gfr: int = 5, num_burnin: int = 0, num_mcmc: int = 100, 
-               sample_sigma_global: bool = True, sample_sigma_leaf: bool = True, random_seed: int = -1) -> None:
+               sample_sigma_global: bool = True, sample_sigma_leaf: bool = True, random_seed: int = -1, 
+               keep_burnin: bool = False, keep_gfr: bool = False) -> None:
         """Runs a BART sampler on provided training set. Predictions will be cached for the training set and (if provided) the test set. 
         Does not require a leaf regression basis. 
 
@@ -42,6 +40,46 @@ class BARTModel:
         :type basis_test: np.array, optional
         :param feature_types: Indicators of feature type (0 = numeric, 1 = ordered categorical, 2 = unordered categorical). If omitted, all covariates are assumed to be numeric.
         :type feature_types: np.array, optional
+        :param cutpoint_grid_size: Maximum number of cutpoints to consider for each feature. Defaults to 100.
+        :type cutpoint_grid_size: int, optional
+        :param sigma_leaf: Scale parameter on the leaf node regression model.
+        :type sigma_leaf: float, optional
+        :param alpha: Prior probability of splitting for a tree of depth 0. Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
+        :type alpha: float, optional
+        :param beta: Exponent that decreases split probabilities for nodes of depth > 0. Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
+        :type beta: float, optional
+        :param min_samples_leaf: Minimum allowable size of a leaf, in terms of training samples. Defaults to 5.
+        :type min_samples_leaf: int, optional
+        :param nu: Shape parameter in the ``IG(nu, nu*lambda)`` global error variance model. Defaults to 3.
+        :type nu: float, optional
+        :param lambda: Component of the scale parameter in the ``IG(nu, nu*lambda)`` global error variance prior. If not specified, this is calibrated as in Sparapani et al (2021).
+        :type lambda: float, optional
+        :param a_leaf: Shape parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model. Defaults to 3.
+        :type a_leaf: float, optional
+        :param b_leaf: Scale parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model. Calibrated internally as ``0.5/num_trees`` if not set here.
+        :type b_leaf: float, optional
+        :param q: Quantile used to calibrated ``lambda`` as in Sparapani et al (2021). Defaults to 0.9.
+        :type q: float, optional
+        :param sigma2: Starting value of global variance parameter. Calibrated internally as in Sparapani et al (2021) if not set here.
+        :type sigma2: float, optional
+        :param num_trees: Number of trees in the ensemble. Defaults to 200.
+        :type num_trees: int, optional
+        :param num_gfr: Number of "warm-start" iterations run using the grow-from-root algorithm (He and Hahn, 2021). Defaults to 5.
+        :type num_gfr: int, optional
+        :param num_burnin: Number of "burn-in" iterations of the MCMC sampler. Defaults to 0.
+        :type num_burnin: int, optional
+        :param num_mcmc: Number of "retained" iterations of the MCMC sampler. Defaults to 100. If this is set to 0, GFR (XBART) samples will be retained.
+        :type num_mcmc: int, optional
+        :param sample_sigma_global: Whether or not to update the ``sigma^2`` global error variance parameter based on ``IG(nu, nu*lambda)``. Defaults to True.
+        :type sample_sigma_global: bool, optional
+        :param sample_sigma_leaf: Whether or not to update the ``tau`` leaf scale variance parameter based on ``IG(a_leaf, b_leaf)``. Cannot (currently) be set to true if ``basis_train`` has more than one column. Defaults to True.
+        :type sample_sigma_leaf: bool, optional
+        :param random_seed: Integer parameterizing the C++ random number generator. If not specified, the C++ random number generator is seeded according to ``std::random_device``.
+        :type random_seed: int, optional
+        :param keep_burnin: Whether or not "burnin" samples should be included in predictions. Defaults to False. Ignored if num_mcmc = 0.
+        :type keep_burnin: bool, optional
+        :param keep_gfr: Whether or not "warm-start" / grow-from-root samples should be included in predictions. Defaults to False. Ignored if num_mcmc = 0.
+        :type keep_gfr: bool, optional
         """
         # Convert everything to standard shape (2-dimensional)
         if X_train.ndim == 1:
@@ -106,7 +144,7 @@ class BARTModel:
             reg_basis = np.c_[np.ones(self.n_train),X_train]
             reg_soln = lstsq(reg_basis, np.squeeze(resid_train))
             sigma2hat = reg_soln[1] / self.n_train
-            quantile_cutoff = 0.9
+            quantile_cutoff = q
             lamb = (sigma2hat*gamma.ppf(1-quantile_cutoff,nu))/nu
         sigma2 = sigma2hat if sigma2 is None else sigma2
         b_leaf = np.squeeze(np.var(resid_train)) / num_trees if b_leaf is None else b_leaf
@@ -173,6 +211,7 @@ class BARTModel:
 
         # Run GFR (warm start) if specified
         if self.num_gfr > 0:
+            gfr_indices = np.arange(self.num_gfr)
             for i in range(self.num_gfr):
                 # Sample the forest
                 forest_sampler.sample_one_iteration(
@@ -190,6 +229,10 @@ class BARTModel:
         
         # Run MCMC
         if self.num_burnin + self.num_mcmc > 0:
+            if self.num_burnin > 0:
+                burnin_indices = np.arange(self.num_gfr, self.num_gfr + self.num_burnin)
+            if self.num_mcmc > 0:
+                mcmc_indices = np.arange(self.num_gfr + self.num_burnin, self.num_gfr + self.num_burnin + self.num_mcmc)
             for i in range(self.num_gfr, self.num_samples):
                 # Sample the forest
                 forest_sampler.sample_one_iteration(
@@ -207,15 +250,45 @@ class BARTModel:
         
         # Mark the model as sampled
         self.sampled = True
+
+        # Prediction indices to be stored
+        if self.num_mcmc > 0:
+            self.keep_indices = mcmc_indices
+            if keep_gfr:
+                self.keep_indices = np.concatenate((gfr_indices, self.keep_indices))
+            else:
+                # Don't retain both GFR and burnin samples
+                if keep_burnin:
+                    self.keep_indices = np.concatenate((burnin_indices, self.keep_indices))
+        else:
+            if self.num_gfr > 0 and self.num_burnin > 0:
+                # Override keep_gfr = False since there are no MCMC samples
+                # Don't retain both GFR and burnin samples
+                self.keep_indices = gfr_indices
+            elif self.num_gfr <= 0 and self.num_burnin > 0:
+                self.keep_indices = burnin_indices
+            elif self.num_gfr > 0 and self.num_burnin <= 0:
+                self.keep_indices = gfr_indices
+            else:
+                raise RuntimeError("There are no samples to retain!")
         
         # Store predictions
-        yhat_train_raw = self.forest_container.forest_container_cpp.Predict(forest_dataset_train.dataset_cpp)
+        yhat_train_raw = self.forest_container.forest_container_cpp.Predict(forest_dataset_train.dataset_cpp)[:,self.keep_indices]
         self.y_hat_train = yhat_train_raw*self.y_std + self.y_bar
         if self.has_test:
-            yhat_test_raw = self.forest_container.forest_container_cpp.Predict(forest_dataset_test.dataset_cpp)
+            yhat_test_raw = self.forest_container.forest_container_cpp.Predict(forest_dataset_test.dataset_cpp)[:,self.keep_indices]
             self.y_hat_test = yhat_test_raw*self.y_std + self.y_bar
     
     def predict(self, covariates: np.array, basis: np.array = None) -> np.array:
+        """Predict outcome from every retained forest of a BART sampler.
+
+        :param X_test: Test set covariates
+        :type X_test: np.array
+        :param basis_test: Optional test set basis vector, must be provided if the model was trained with a leaf regression basis
+        :type basis_test: np.array, optional
+        :return: Array of predictions with as many rows as in ``covariates`` and as many columns as retained samples of the algorithm.
+        :rtype: np.array
+        """
         if not self.is_sampled():
             msg = (
                 "This BCFModel instance is not fitted yet. Call 'fit' with "
@@ -237,4 +310,5 @@ class BARTModel:
         pred_dataset = Dataset()
         pred_dataset.add_covariates(covariates)
         pred_dataset.add_basis(basis)
-        return self.forest_container.forest_container_cpp.Predict(pred_dataset.dataset_cpp)*self.y_std + self.y_bar
+        pred_raw = self.forest_container.forest_container_cpp.Predict(pred_dataset.dataset_cpp)
+        return pred_raw[:,self.keep_indices]*self.y_std + self.y_bar

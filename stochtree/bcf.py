@@ -5,6 +5,7 @@ from sklearn.model_selection import GridSearchCV, KFold
 from typing import Optional
 from scipy.linalg import lstsq
 from scipy.stats import gamma
+from .bart import BARTModel
 from .data import Dataset, Residual
 from .forest import ForestContainer
 from .sampler import ForestSampler, RNG, GlobalVarianceModel, LeafVarianceModel
@@ -28,7 +29,92 @@ class BCFModel:
                q: float = 0.9, sigma2: float = None, num_trees_mu: int = 200, num_trees_tau: int = 50, 
                num_gfr: int = 5, num_burnin: int = 0, num_mcmc: int = 100, sample_sigma_global: bool = True, 
                sample_sigma_leaf_mu: bool = True, sample_sigma_leaf_tau: bool = False, propensity_covariate: str = "mu", 
-               adaptive_coding: bool = True, b_0: float = -0.5, b_1: float = 0.5, random_seed: int = -1) -> None:
+               adaptive_coding: bool = True, b_0: float = -0.5, b_1: float = 0.5, random_seed: int = -1, 
+               keep_burnin: bool = False, keep_gfr: bool = False) -> None:
+        """Runs a BCF sampler on provided training set. Outcome predictions and estimates of the prognostic and treatment effect functions 
+        will be cached for the training set and (if provided) the test set.
+
+        :param X_train: Covariates used to split trees in the ensemble. Can be passed as either a matrix or dataframe.
+        :type X_train: np.array
+        :param Z_train: Vector of (continuous or binary) treatment assignments.
+        :type Z_train: np.array
+        :param y_train: Outcome to be modeled by the ensemble.
+        :type y_train: np.array
+        :param pi_train: Optional vector of propensity scores. If not provided, this will be estimated from the data.
+        :type pi_train: np.array, optional
+        :param X_test: Optional test set of covariates used to define "out of sample" evaluation data.
+        :type X_test: np.array
+        :param Z_test: Optional test set of (continuous or binary) treatment assignments.
+        :type Z_test: np.array, optional
+        :param pi_test: Optional test set vector of propensity scores. If not provided (but ``X_test`` and ``Z_test`` are), this will be estimated from the data.
+        :type pi_test: np.array, optional
+        :param feature_types: Indicators of feature type (0 = numeric, 1 = ordered categorical, 2 = unordered categorical). If omitted, all covariates are assumed to be numeric.
+        :type feature_types: np.array, optional
+        :param cutpoint_grid_size: Maximum number of cutpoints to consider for each feature. Defaults to 100.
+        :type cutpoint_grid_size: int, optional
+        :param sigma_leaf_mu: Starting value of leaf node scale parameter for the prognostic forest. Calibrated internally as ``2/num_trees_mu`` if not set here.
+        :type sigma_leaf_mu: float, optional
+        :param sigma_leaf_tau: Starting value of leaf node scale parameter for the treatment effect forest. Calibrated internally as ``1/num_trees_mu`` if not set here.
+        :type sigma_leaf_tau: float, optional
+        :param alpha_mu: Prior probability of splitting for a tree of depth 0 for the prognostic forest. Tree split prior combines ``alpha_mu`` and ``beta_mu`` via ``alpha_mu*(1+node_depth)^-beta_mu``.
+        :type alpha_mu: float, optional
+        :param alpha_tau: Prior probability of splitting for a tree of depth 0 for the treatment effect forest. Tree split prior combines ``alpha_tau`` and ``beta_tau`` via ``alpha_tau*(1+node_depth)^-beta_tau``.
+        :type alpha_tau: float, optional
+        :param beta_mu: Exponent that decreases split probabilities for nodes of depth > 0 for the prognostic forest. Tree split prior combines ``alpha_mu`` and ``beta_mu`` via ``alpha_mu*(1+node_depth)^-beta_mu``.
+        :type beta_mu: float, optional
+        :param beta_tau: Exponent that decreases split probabilities for nodes of depth > 0 for the treatment effect forest. Tree split prior combines ``alpha_tau`` and ``beta_tau`` via ``alpha_tau*(1+node_depth)^-beta_tau``.
+        :type beta_tau: float, optional
+        :param min_samples_leaf_mu: Minimum allowable size of a leaf, in terms of training samples, for the prognostic forest. Defaults to 5.
+        :type min_samples_leaf_mu: int, optional
+        :param min_samples_leaf_tau: Minimum allowable size of a leaf, in terms of training samples, for the treatment effect forest. Defaults to 5.
+        :type min_samples_leaf_tau: int, optional
+        :param nu: Shape parameter in the ``IG(nu, nu*lambda)`` global error variance model. Defaults to 3.
+        :type nu: float, optional
+        :param lambda: Component of the scale parameter in the ``IG(nu, nu*lambda)`` global error variance prior. If not specified, this is calibrated as in Sparapani et al (2021).
+        :type lambda: float, optional
+        :param a_leaf_mu: Shape parameter in the ``IG(a_leaf_mu, b_leaf_mu)`` leaf node parameter variance model for the prognostic forest. Defaults to 3.
+        :type a_leaf_mu: float, optional
+        :param a_leaf_tau: Shape parameter in the ``IG(a_leaf_tau, b_leaf_tau)`` leaf node parameter variance model for the treatment effect forest. Defaults to 3.
+        :type a_leaf_tau: float, optional
+        :param b_leaf_mu: Scale parameter in the ``IG(a_leaf_mu, b_leaf_mu)`` leaf node parameter variance model for the prognostic forest. Calibrated internally as ``0.5/num_trees_mu`` if not set here.
+        :type b_leaf_mu: float, optional
+        :param b_leaf_tau: Scale parameter in the ``IG(a_leaf_tau, b_leaf_tau)`` leaf node parameter variance model for the treatment effect forest. Calibrated internally as ``0.5/num_trees_tau`` if not set here.
+        :type b_leaf_tau: float, optional
+        :param q: Quantile used to calibrated ``lambda`` as in Sparapani et al (2021). Defaults to 0.9.
+        :type q: float, optional
+        :param sigma2: Starting value of global variance parameter. Calibrated internally as in Sparapani et al (2021) if not set here.
+        :type sigma2: float, optional
+        :param num_trees_mu: Number of trees in the prognostic forest. Defaults to 200.
+        :type num_trees_mu: int, optional
+        :param num_trees: Number of trees in the treatment effect forest. Defaults to 50.
+        :type num_trees: int, optional
+        :param num_gfr: Number of "warm-start" iterations run using the grow-from-root algorithm (He and Hahn, 2021). Defaults to 5.
+        :type num_gfr: int, optional
+        :param num_burnin: Number of "burn-in" iterations of the MCMC sampler. Defaults to 0.
+        :type num_burnin: int, optional
+        :param num_mcmc: Number of "retained" iterations of the MCMC sampler. Defaults to 100. If this is set to 0, GFR (XBART) samples will be retained.
+        :type num_mcmc: int, optional
+        :param sample_sigma_global: Whether or not to update the ``sigma^2`` global error variance parameter based on ``IG(nu, nu*lambda)``. Defaults to True.
+        :type sample_sigma_global: bool, optional
+        :param sample_sigma_leaf_mu: Whether or not to update the leaf scale variance parameter based on ``IG(a_leaf_mu, b_leaf_mu)`` for the prognostic forest. Defaults to True.
+        :type sample_sigma_leaf_mu: bool, optional
+        :param sample_sigma_leaf_tau: Whether or not to update the leaf scale variance parameter based on ``IG(a_leaf_tau, b_leaf_tau)`` for the treatment effect forest. Defaults to True.
+        :type sample_sigma_leaf_tau: bool, optional
+        :param propensity_covariate: Whether to include the propensity score as a covariate in either or both of the forests. Enter "none" for neither, "mu" for the prognostic forest, "tau" for the treatment forest, and "both" for both forests. If this is not "none" and a propensity score is not provided, it will be estimated from (``X_train``, ``Z_train``) using ``BARTModel``. Defaults to "mu".
+        :type propensity_covariate: string, optional
+        :param adaptive_coding: Whether or not to use an "adaptive coding" scheme in which a binary treatment variable is not coded manually as (0,1) or (-1,1) but learned via parameters ``b_0`` and ``b_1`` that attach to the outcome model ``[b_0 (1-Z) + b_1 Z] tau(X)``. This is ignored when Z is not binary. Defaults to True.
+        :type adaptive_coding: bool, optional
+        :param b_0: Initial value of the "control" group coding parameter. This is ignored when Z is not binary. Default: -0.5.
+        :type b_0: bool, optional
+        :param b_1: Initial value of the "control" group coding parameter. This is ignored when Z is not binary. Default: 0.5.
+        :type b_1: bool, optional
+        :param random_seed: Integer parameterizing the C++ random number generator. If not specified, the C++ random number generator is seeded according to ``std::random_device``.
+        :type random_seed: int, optional
+        :param keep_burnin: Whether or not "burnin" samples should be included in predictions. Defaults to False. Ignored if num_mcmc = 0.
+        :type keep_burnin: bool, optional
+        :param keep_gfr: Whether or not "warm-start" / grow-from-root samples should be included in predictions. Defaults to False. Ignored if num_mcmc = 0.
+        :type keep_gfr: bool, optional
+        """
         # Convert everything to standard shape (2-dimensional)
         if X_train.ndim == 1:
             X_train = np.expand_dims(X_train, 1)
@@ -88,7 +174,18 @@ class BCFModel:
 
         # Check if user has provided propensities that are needed in the model
         if pi_train is None and propensity_covariate != "none":
-            raise ValueError("Must provide a propensity score")
+            self.bart_propensity_model = BARTModel()
+            if self.has_test:
+                pi_test = np.mean(self.bart_propensity_model.y_hat_test, axis = 1, keepdims = True)
+                self.bart_propensity_model.sample(X_train=X_train, y_train=Z_train, X_test=X_test, num_gfr=10, num_mcmc=10)
+                pi_train = np.mean(self.bart_propensity_model.y_hat_train, axis = 1, keepdims = True)
+                pi_test = np.mean(self.bart_propensity_model.y_hat_test, axis = 1, keepdims = True)
+            else:
+                self.bart_propensity_model.sample(X_train=X_train, y_train=Z_train, num_gfr=10, num_mcmc=10)
+                pi_train = np.mean(self.bart_propensity_model.y_hat_train, axis = 1, keepdims = True)
+            self.internal_propensity_model = True
+        else:
+            self.internal_propensity_model = False
         
         # Set feature type defaults if not provided
         if feature_types is None:
@@ -130,6 +227,9 @@ class BCFModel:
         else:
             raise ValueError("propensity_covariate must be one of 'mu', 'tau', 'both', or 'none'")
         
+        # Store propensity score requirements of the BCF forests
+        self.propensity_covariate = propensity_covariate
+        
         # Set variable weights for the prognostic and treatment effect forests
         variable_weights_mu = np.repeat(1.0/X_train_mu.shape[1], X_train_mu.shape[1])
         variable_weights_tau = np.repeat(1.0/X_train_tau.shape[1], X_train_tau.shape[1])
@@ -144,7 +244,7 @@ class BCFModel:
             reg_basis = np.c_[np.ones(self.n_train),X_train]
             reg_soln = lstsq(reg_basis, np.squeeze(resid_train))
             sigma2hat = reg_soln[1] / self.n_train
-            quantile_cutoff = 0.9
+            quantile_cutoff = q
             lamb = (sigma2hat*gamma.ppf(1-quantile_cutoff,nu))/nu
         sigma2 = sigma2hat if sigma2 is None else sigma2
         b_leaf_mu = np.squeeze(np.var(resid_train)) / num_trees_mu if b_leaf_mu is None else b_leaf_mu
@@ -240,6 +340,7 @@ class BCFModel:
 
         # Run GFR (warm start) if specified
         if self.num_gfr > 0:
+            gfr_indices = np.arange(self.num_gfr)
             for i in range(self.num_gfr):
                 # Sample the prognostic forest
                 forest_sampler_mu.sample_one_iteration(
@@ -292,6 +393,10 @@ class BCFModel:
         
         # Run MCMC
         if self.num_burnin + self.num_mcmc > 0:
+            if self.num_burnin > 0:
+                burnin_indices = np.arange(self.num_gfr, self.num_gfr + self.num_burnin)
+            if self.num_mcmc > 0:
+                mcmc_indices = np.arange(self.num_gfr + self.num_burnin, self.num_gfr + self.num_burnin + self.num_mcmc)
             for i in range(self.num_gfr, self.num_samples):
                 # Sample the prognostic forest
                 forest_sampler_mu.sample_one_iteration(
@@ -344,69 +449,187 @@ class BCFModel:
         
         # Mark the model as sampled
         self.sampled = True
+
+        # Prediction indices to be stored
+        if self.num_mcmc > 0:
+            self.keep_indices = mcmc_indices
+            if keep_gfr:
+                self.keep_indices = np.concatenate((gfr_indices, self.keep_indices))
+            else:
+                # Don't retain both GFR and burnin samples
+                if keep_burnin:
+                    self.keep_indices = np.concatenate((burnin_indices, self.keep_indices))
+        else:
+            if self.num_gfr > 0 and self.num_burnin > 0:
+                # Override keep_gfr = False since there are no MCMC samples
+                # Don't retain both GFR and burnin samples
+                self.keep_indices = gfr_indices
+            elif self.num_gfr <= 0 and self.num_burnin > 0:
+                self.keep_indices = burnin_indices
+            elif self.num_gfr > 0 and self.num_burnin <= 0:
+                self.keep_indices = gfr_indices
+            else:
+                raise RuntimeError("There are no samples to retain!")
         
         # Store predictions
         mu_raw = self.forest_container_mu.forest_container_cpp.Predict(forest_dataset_mu_train.dataset_cpp)
-        self.mu_hat_train = mu_raw*self.y_std + self.y_bar
+        self.mu_hat_train = mu_raw[:,self.keep_indices]*self.y_std + self.y_bar
         tau_raw = self.forest_container_tau.forest_container_cpp.PredictRaw(forest_dataset_tau_train.dataset_cpp)
-        self.tau_hat_train = tau_raw*self.y_std
+        self.tau_hat_train = tau_raw[:,self.keep_indices]*self.y_std
         if self.adaptive_coding:
-            adaptive_coding_weights = np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+            adaptive_coding_weights = np.expand_dims(self.b1_samples[self.keep_indices] - self.b0_samples[self.keep_indices], axis=(0,2))
             self.tau_hat_train = self.tau_hat_train*adaptive_coding_weights
         self.y_hat_train = self.mu_hat_train + Z_train*np.squeeze(self.tau_hat_train)
         if self.has_test:
             mu_raw_test = self.forest_container_mu.forest_container_cpp.Predict(forest_dataset_mu_test.dataset_cpp)
-            self.mu_hat_test = mu_raw_test*self.y_std + self.y_bar
+            self.mu_hat_test = mu_raw_test[:,self.keep_indices]*self.y_std + self.y_bar
             tau_raw_test = self.forest_container_tau.forest_container_cpp.PredictRaw(forest_dataset_tau_test.dataset_cpp)
-            self.tau_hat_test = tau_raw_test*self.y_std
+            self.tau_hat_test = tau_raw_test[:,self.keep_indices]*self.y_std
             if self.adaptive_coding:
-                adaptive_coding_weights_test = np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+                adaptive_coding_weights_test = np.expand_dims(self.b1_samples[self.keep_indices] - self.b0_samples[self.keep_indices], axis=(0,2))
                 self.tau_hat_test = self.tau_hat_test*adaptive_coding_weights_test
             self.y_hat_test = self.mu_hat_test + Z_test*np.squeeze(self.tau_hat_test)
     
-    def predict_mu(self, X: np.array) -> np.array:
+    def predict_tau(self, X: np.array, Z: np.array, propensity: np.array = None) -> np.array:
+        """Predict CATE function for every provided observation.
+
+        :param X: Test set covariates
+        :type X: np.array
+        :param Z: Test set treatment indicators
+        :type Z: np.array
+        :param propensity: Optional test set propensities. Must be provided if propensities were provided when ``.sample()`` was run and propensity scores were included in the CATE model.
+        :type propensity: np.array, optional
+        :return: Array with as many rows as in ``X`` and as many columns as retained samples of the algorithm.
+        :rtype: np.array
+        """
         if not self.is_sampled():
             msg = (
                 "This BCFModel instance is not fitted yet. Call 'fit' with "
                 "appropriate arguments before using this model."
             )
             raise NotSampledError(msg)
-        dataset = Dataset()
-        dataset.add_covariates(X)
-        return self.forest_container_mu.forest_container_cpp.Predict(dataset.dataset_cpp)*self.y_std + self.y_bar
-    
-    def predict_tau(self, X: np.array, Z: np.array) -> np.array:
-        if not self.is_sampled():
-            msg = (
-                "This BCFModel instance is not fitted yet. Call 'fit' with "
-                "appropriate arguments before using this model."
-            )
-            raise NotSampledError(msg)
-        dataset = Dataset()
-        dataset.add_covariates(X)
-        dataset.add_basis(Z)
-        tau_raw = self.forest_container_tau.forest_container_cpp.PredictRaw(dataset.dataset_cpp)
-        tau_x = tau_raw*self.y_std
+        
+        # Convert everything to standard shape (2-dimensional)
+        if X.ndim == 1:
+            X = np.expand_dims(X, 1)
+        if Z.ndim == 1:
+            Z = np.expand_dims(Z, 1)
+        if propensity is not None:
+            if propensity.ndim == 1:
+                propensity = np.expand_dims(propensity, 1)
+        
+        # Data checks
+        if Z.shape[0] != X.shape[0]:
+            raise ValueError("X and Z must have the same number of rows")
+        if propensity is not None:
+            if propensity.shape[0] != X.shape[0]:
+                raise ValueError("X and propensity must have the same number of rows")
+        else:
+            if self.propensity_covariate == "tau":
+                if not self.internal_propensity_model:
+                    raise ValueError("Propensity scores not provided, but no propensity model was trained during sampling")
+                else:
+                    propensity = np.mean(self.bart_propensity_model.predict(X), axis=1, keepdims=True)
+        
+        # Update covariates to include propensities if requested
+        if self.propensity_covariate == "tau":
+            X_tau = np.c_[X, propensity]
+        else:
+            X_tau = X
+        
+        # Treatment Forest Dataset (covariates and treatment variable)
+        forest_dataset_tau = Dataset()
+        forest_dataset_tau.add_covariates(X_tau)
+        forest_dataset_tau.add_basis(Z)
+        
+        # Estimate treatment effect
+        tau_raw = self.forest_container_tau.forest_container_cpp.PredictRaw(forest_dataset_tau.dataset_cpp)
+        tau_raw = tau_raw*self.y_std
         if self.adaptive_coding:
-            tau_x = tau_x*np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+            tau_raw = tau_raw*np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+        tau_x = tau_raw[:,self.keep_indices]
+
+        # Return result matrices as a tuple
         return tau_x
     
-    def predict(self, X: np.array, Z: np.array, propensity: np.array) -> np.array:
+    def predict(self, X: np.array, Z: np.array, propensity: np.array = None) -> np.array:
+        """Predict outcome model components (CATE function and prognostic function) as well as overall outcome for every provided observation. 
+        Predicted outcomes are computed as ``yhat = mu_x + Z*tau_x`` where mu_x is a sample of the prognostic function and tau_x is a sample of the treatment effect (CATE) function.
+
+        :param X: Test set covariates
+        :type X: np.array
+        :param Z: Test set treatment indicators
+        :type Z: np.array
+        :param propensity: Optional test set propensities. Must be provided if propensities were provided when ``.sample()`` was run.
+        :type propensity: np.array, optional
+        :return: Tuple of arrays with as many rows as in ``X`` and as many columns as retained samples of the algorithm. The first entry of the tuple contains conditional average treatment effect (CATE) samples, the second entry contains prognostic effect samples, and the third entry contains outcome prediction samples
+        :rtype: tuple
+        """
         if not self.is_sampled():
             msg = (
                 "This BCFModel instance is not fitted yet. Call 'fit' with "
                 "appropriate arguments before using this model."
             )
             raise NotSampledError(msg)
-        mu_dataset = Dataset()
-        Xtilde = np.c_[X, propensity]
-        mu_dataset.add_covariates(Xtilde)
-        tau_dataset = Dataset()
-        tau_dataset.add_covariates(X)
-        tau_dataset.add_basis(Z)
-        mu_x = self.forest_container_mu.forest_container_cpp.Predict(mu_dataset.dataset_cpp)*self.y_std + self.y_bar
-        tau_raw = self.forest_container_tau.forest_container_cpp.PredictRaw(tau_dataset.dataset_cpp)
-        tau_x = tau_raw*self.y_std
+        
+        # Convert everything to standard shape (2-dimensional)
+        if X.ndim == 1:
+            X = np.expand_dims(X, 1)
+        if Z.ndim == 1:
+            Z = np.expand_dims(Z, 1)
+        if propensity is not None:
+            if propensity.ndim == 1:
+                propensity = np.expand_dims(propensity, 1)
+        
+        # Data checks
+        if Z.shape[0] != X.shape[0]:
+            raise ValueError("X and Z must have the same number of rows")
+        if propensity is not None:
+            if propensity.shape[0] != X.shape[0]:
+                raise ValueError("X and propensity must have the same number of rows")
+        else:
+            if self.propensity_covariate != "none":
+                if not self.internal_propensity_model:
+                    raise ValueError("Propensity scores not provided, but no propensity model was trained during sampling")
+                else:
+                    propensity = np.mean(self.bart_propensity_model.predict(X), axis=1, keepdims=True)
+        
+        # Update covariates to include propensities if requested
+        if self.propensity_covariate == "mu":
+            X_mu = np.c_[X, propensity]
+            X_tau = X
+        elif self.propensity_covariate == "tau":
+            X_mu = X
+            X_tau = np.c_[X, propensity]
+        elif self.propensity_covariate == "both":
+            X_mu = np.c_[X, propensity]
+            X_tau = np.c_[X, propensity]
+        elif self.propensity_covariate == "none":
+            X_mu = X
+            X_tau = X
+        
+        # Prognostic Forest Dataset (covariates)
+        forest_dataset_mu = Dataset()
+        forest_dataset_mu.add_covariates(X_mu)
+
+        # Treatment Forest Dataset (covariates and treatment variable)
+        forest_dataset_tau = Dataset()
+        forest_dataset_tau.add_covariates(X_tau)
+        forest_dataset_tau.add_basis(Z)
+        
+        # Estimate prognostic term
+        mu_raw = self.forest_container_mu.forest_container_cpp.Predict(forest_dataset_mu.dataset_cpp)
+        mu_x = mu_raw[:,self.keep_indices]*self.y_std + self.y_bar
+        
+        # Estimate treatment effect
+        tau_raw = self.forest_container_tau.forest_container_cpp.PredictRaw(forest_dataset_tau.dataset_cpp)
+        tau_raw = tau_raw*self.y_std
         if self.adaptive_coding:
-            tau_x = tau_x*np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
-        return mu_x + Z*tau_x
+            tau_raw = tau_raw*np.expand_dims(self.b1_samples - self.b0_samples, axis=(0,2))
+        tau_x = tau_raw[:,self.keep_indices]
+
+        # Outcome predictions
+        yhat_x = mu_x + Z*tau_x
+
+        # Return result matrices as a tuple
+        return (tau_x, mu_x, yhat_x)
