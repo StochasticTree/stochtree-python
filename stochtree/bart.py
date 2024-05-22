@@ -11,6 +11,9 @@ from .sampler import ForestSampler, RNG, GlobalVarianceModel, LeafVarianceModel
 from .utils import NotSampledError
 
 class BARTModel:
+    """Samples BART models and stores forests for prediction and serialization
+    """
+
     def __init__(self) -> None:
         # Internal flag for whether the sample() method has been run
         self.sampled = False
@@ -24,6 +27,22 @@ class BARTModel:
                min_samples_leaf: int = 5, nu: float = 3, lamb: float = None, a_leaf: float = 3, b_leaf: float = None, q: float = 0.9, 
                sigma2: float = None, num_trees: int = 200, num_gfr: int = 5, num_burnin: int = 0, num_mcmc: int = 100, 
                sample_sigma_global: bool = True, sample_sigma_leaf: bool = True, random_seed: int = -1) -> None:
+        """Runs a BART sampler on provided training set. Predictions will be cached for the training set and (if provided) the test set. 
+        Does not require a leaf regression basis. 
+
+        :param X_train: Training set covariates on which trees may be partitioned
+        :type X_train: np.array
+        :param y_train: Training set outcome
+        :type y_train: np.array
+        :param basis_train: Optional training set basis vector used to define a regression to be run in the leaves of each tree
+        :type basis_train: np.array, optional
+        :param X_test: Test set covariates on which trees may be partitioned
+        :type X_test: np.array
+        :param basis_test: Optional test set basis vector used to define a regression to be run in the leaves of each tree. Must be included / omitted consistently (i.e. if basis_train is provided, then basis_test must be provided alongside X_test).
+        :type basis_test: np.array, optional
+        :param feature_types: Indicators of feature type (0 = numeric, 1 = ordered categorical, 2 = unordered categorical). If omitted, all covariates are assumed to be numeric.
+        :type feature_types: np.array, optional
+        """
         # Convert everything to standard shape (2-dimensional)
         if X_train.ndim == 1:
             X_train = np.expand_dims(X_train, 1)
