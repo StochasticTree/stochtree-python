@@ -282,10 +282,10 @@ class BARTModel:
     def predict(self, covariates: np.array, basis: np.array = None) -> np.array:
         """Predict outcome from every retained forest of a BART sampler.
 
-        :param X_test: Test set covariates
-        :type X_test: np.array
-        :param basis_test: Optional test set basis vector, must be provided if the model was trained with a leaf regression basis
-        :type basis_test: np.array, optional
+        :param covariates: Test set covariates
+        :type covariates: np.array
+        :param basis: Optional test set basis vector, must be provided if the model was trained with a leaf regression basis
+        :type basis: np.array, optional
         :return: Array of predictions with as many rows as in ``covariates`` and as many columns as retained samples of the algorithm.
         :rtype: np.array
         """
