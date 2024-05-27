@@ -383,6 +383,18 @@ class LeafVarianceModelCpp {
   StochTree::LeafNodeHomoskedasticVarianceModel var_model_;
 };
 
+class ForestDatasetCpp {
+ public:
+  ForestDatasetCpp() {
+    // Initialize pointer to C++ nlohmann::json class
+    json_ = std::make_unique<nlohmann::json>();
+  }
+  ~ForestDatasetCpp() {}
+
+ private:
+  std::unique_ptr<nlohmann::json> json_;
+};
+
 // Implementation of UpdateResidual
 void ForestContainerCpp::UpdateResidual(ForestDatasetCpp& dataset, ResidualCpp& residual, ForestSamplerCpp& sampler, bool requires_basis, int forest_num, bool add) {
   // Determine whether or not we are adding forest_num to the residuals
