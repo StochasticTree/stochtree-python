@@ -216,15 +216,7 @@ class ForestContainerCpp {
     forest_samples_->InitializeRoot(leaf_vector_converted);
   }
 
-  void UpdateResidual(ForestDatasetCpp& dataset, ResidualCpp& residual, ForestSamplerCpp& sampler, bool requires_basis, int forest_num, bool add) {
-    // Determine whether or not we are adding forest_num to the residuals
-    std::function<double(double, double)> op;
-    if (add) op = std::plus<double>();
-    else op = std::minus<double>();
-    
-    // Perform the update (addition / subtraction) operation
-    StochTree::UpdateResidualEntireForest(*(sampler.GetTracker()), *(dataset.GetDataset()), *(residual.GetData()), forest_samples_->GetEnsemble(forest_num), requires_basis, op);
-  }
+  void UpdateResidual(ForestDatasetCpp& dataset, ResidualCpp& residual, ForestSamplerCpp& sampler, bool requires_basis, int forest_num, bool add);
 
   void SaveJson(std::string json_filename) {
     forest_samples_->SaveToJsonFile(json_filename);
@@ -391,13 +383,23 @@ class LeafVarianceModelCpp {
   StochTree::LeafNodeHomoskedasticVarianceModel var_model_;
 };
 
-class ForestDatasetCpp {
+void ForestContainerCpp::UpdateResidual(ForestDatasetCpp& dataset, ResidualCpp& residual, ForestSamplerCpp& sampler, bool requires_basis, int forest_num, bool add) {
+  // Determine whether or not we are adding forest_num to the residuals
+  std::function<double(double, double)> op;
+  if (add) op = std::plus<double>();
+  else op = std::minus<double>();
+  
+  // Perform the update (addition / subtraction) operation
+  StochTree::UpdateResidualEntireForest(*(sampler.GetTracker()), *(dataset.GetDataset()), *(residual.GetData()), forest_samples_->GetEnsemble(forest_num), requires_basis, op);
+}
+
+class JsonCpp {
  public:
-  ForestDatasetCpp() {
+  JsonCpp() {
     // Initialize pointer to C++ nlohmann::json class
     json_ = std::make_unique<nlohmann::json>();
   }
-  ~ForestDatasetCpp() {}
+  ~JsonCpp() {}
 
  private:
   std::unique_ptr<nlohmann::json> json_;
@@ -442,6 +444,9 @@ PYBIND11_MODULE(stochtree_cpp, m) {
     py::class_<LeafVarianceModelCpp>(m, "LeafVarianceModelCpp")
         .def(py::init<>())
         .def("SampleOneIteration", &LeafVarianceModelCpp::SampleOneIteration);
+
+    py::class_<JsonCpp>(m, "JsonCpp")
+        .def(py::init<>());
 
 #ifdef VERSION_INFO
     m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);
