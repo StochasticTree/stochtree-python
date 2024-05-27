@@ -216,7 +216,15 @@ class ForestContainerCpp {
     forest_samples_->InitializeRoot(leaf_vector_converted);
   }
 
-  void UpdateResidual(ForestDatasetCpp& dataset, ResidualCpp& residual, ForestSamplerCpp& sampler, bool requires_basis, int forest_num, bool add);
+  void UpdateResidual(ForestDatasetCpp& dataset, ResidualCpp& residual, ForestSamplerCpp& sampler, bool requires_basis, int forest_num, bool add) {
+    // Determine whether or not we are adding forest_num to the residuals
+    std::function<double(double, double)> op;
+    if (add) op = std::plus<double>();
+    else op = std::minus<double>();
+    
+    // Perform the update (addition / subtraction) operation
+    StochTree::UpdateResidualEntireForest(*(sampler.GetTracker()), *(dataset.GetDataset()), *(residual.GetData()), forest_samples_->GetEnsemble(forest_num), requires_basis, op);
+  }
 
   void SaveJson(std::string json_filename) {
     forest_samples_->SaveToJsonFile(json_filename);
@@ -394,17 +402,6 @@ class ForestDatasetCpp {
  private:
   std::unique_ptr<nlohmann::json> json_;
 };
-
-// Implementation of UpdateResidual
-void ForestContainerCpp::UpdateResidual(ForestDatasetCpp& dataset, ResidualCpp& residual, ForestSamplerCpp& sampler, bool requires_basis, int forest_num, bool add) {
-  // Determine whether or not we are adding forest_num to the residuals
-  std::function<double(double, double)> op;
-  if (add) op = std::plus<double>();
-  else op = std::minus<double>();
-  
-  // Perform the update (addition / subtraction) operation
-  StochTree::UpdateResidualEntireForest(*(sampler.GetTracker()), *(dataset.GetDataset()), *(residual.GetData()), forest_samples_->GetEnsemble(forest_num), requires_basis, op);
-}
 
 PYBIND11_MODULE(stochtree_cpp, m) {
     py::class_<ForestDatasetCpp>(m, "ForestDatasetCpp")
