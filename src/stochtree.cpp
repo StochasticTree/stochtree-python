@@ -1,5 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <pybind11/stl.h>
+#include <nlohmann/json.hpp>
 #include <stochtree/container.h>
 #include <stochtree/data.h>
 #include <stochtree/leaf_model.h>
@@ -114,14 +116,18 @@ class RngCpp {
   std::unique_ptr<std::mt19937> rng_;
 };
 
-// Forward declaration
+// Forward declarations
 class ForestSamplerCpp;
+class JsonCpp;
 
 class ForestContainerCpp {
  public:
   ForestContainerCpp(int num_trees, int output_dimension = 1, bool is_leaf_constant = true) {
     // Initialize pointer to C++ ForestContainer class
     forest_samples_ = std::make_unique<StochTree::ForestContainer>(num_trees, output_dimension, is_leaf_constant);
+    num_trees_ = num_trees;
+    output_dimension_ = output_dimension;
+    is_leaf_constant_ = is_leaf_constant;
   }
   ~ForestContainerCpp() {}
 
@@ -218,13 +224,15 @@ class ForestContainerCpp {
 
   void UpdateResidual(ForestDatasetCpp& dataset, ResidualCpp& residual, ForestSamplerCpp& sampler, bool requires_basis, int forest_num, bool add);
 
-  void SaveJson(std::string json_filename) {
+  void SaveToJsonFile(std::string json_filename) {
     forest_samples_->SaveToJsonFile(json_filename);
   }
 
-  void LoadFromJson(std::string json_filename) {
+  void LoadFromJsonFile(std::string json_filename) {
     forest_samples_->LoadFromJsonFile(json_filename);
   }
+
+  void LoadFromJson(JsonCpp& json, std::string forest_label);
 
   StochTree::ForestContainer* GetContainer() {
     return forest_samples_.get();
@@ -234,8 +242,15 @@ class ForestContainerCpp {
     return forest_samples_->GetEnsemble(i);
   }
 
+  nlohmann::json ToJson() {
+    return forest_samples_->to_json();
+  }
+
  private:
   std::unique_ptr<StochTree::ForestContainer> forest_samples_;
+  int num_trees_;
+  int output_dimension_;
+  bool is_leaf_constant_;
 };
 
 class ForestSamplerCpp {
@@ -398,59 +413,350 @@ class JsonCpp {
   JsonCpp() {
     // Initialize pointer to C++ nlohmann::json class
     json_ = std::make_unique<nlohmann::json>();
+    nlohmann::json forests = nlohmann::json::object();
+    json_->emplace("forests", forests);
+    json_->emplace("num_forests", 0);
   }
   ~JsonCpp() {}
+
+  void LoadFile(std::string filename) {
+    std::ifstream f(filename);
+    *json_ = nlohmann::json::parse(f);
+  }
+
+  void SaveFile(std::string filename) {
+    std::ofstream output_file(filename);
+    output_file << *json_ << std::endl;
+  }
+
+  std::string DumpJson() {
+    return json_->dump();
+  }
+
+  std::string AddForest(ForestContainerCpp& forest_samples) {
+    int forest_num = json_->at("num_forests");
+    std::string forest_label = "forest_" + std::to_string(forest_num);
+    nlohmann::json forest_json = forest_samples.ToJson();
+    json_->at("forests").emplace(forest_label, forest_json);
+    json_->at("num_forests") = forest_num + 1;
+    return forest_label;
+  }
+
+  void AddDouble(std::string field_name, double field_value) {
+    if (json_->contains(field_name)) {
+      json_->at(field_name) = field_value;
+    } else {
+      json_->emplace(std::pair(field_name, field_value));
+    }
+  }
+
+  void AddDoubleSubfolder(std::string subfolder_name, std::string field_name, double field_value) {
+    if (json_->contains(subfolder_name)) {
+      if (json_->at(subfolder_name).contains(field_name)) {
+        json_->at(subfolder_name).at(field_name) = field_value;
+      } else {
+        json_->at(subfolder_name).emplace(std::pair(field_name, field_value));
+      }
+    } else {
+      json_->emplace(std::pair(subfolder_name, nlohmann::json::object()));
+      json_->at(subfolder_name).emplace(std::pair(field_name, field_value));
+    }
+  }
+
+  void AddBool(std::string field_name, bool field_value) {
+    if (json_->contains(field_name)) {
+      json_->at(field_name) = field_value;
+    } else {
+      json_->emplace(std::pair(field_name, field_value));
+    }
+  }
+
+  void AddBoolSubfolder(std::string subfolder_name, std::string field_name, bool field_value) {
+    if (json_->contains(subfolder_name)) {
+      if (json_->at(subfolder_name).contains(field_name)) {
+        json_->at(subfolder_name).at(field_name) = field_value;
+      } else {
+        json_->at(subfolder_name).emplace(std::pair(field_name, field_value));
+      }
+    } else {
+      json_->emplace(std::pair(subfolder_name, nlohmann::json::object()));
+      json_->at(subfolder_name).emplace(std::pair(field_name, field_value));
+    }
+  }
+
+  void AddString(std::string field_name, std::string field_value) {
+    if (json_->contains(field_name)) {
+      json_->at(field_name) = field_value;
+    } else {
+      json_->emplace(std::pair(field_name, field_value));
+    }
+  }
+
+  void AddStringSubfolder(std::string subfolder_name, std::string field_name, std::string field_value) {
+    if (json_->contains(subfolder_name)) {
+      if (json_->at(subfolder_name).contains(field_name)) {
+        json_->at(subfolder_name).at(field_name) = field_value;
+      } else {
+        json_->at(subfolder_name).emplace(std::pair(field_name, field_value));
+      }
+    } else {
+      json_->emplace(std::pair(subfolder_name, nlohmann::json::object()));
+      json_->at(subfolder_name).emplace(std::pair(field_name, field_value));
+    }
+  }
+
+  void AddDoubleVector(std::string field_name, py::array_t<double> field_vector) {
+    int vec_length = field_vector.size();
+    auto accessor = field_vector.mutable_unchecked<1>();
+    if (json_->contains(field_name)) {
+      json_->at(field_name).clear();
+      for (int i = 0; i < vec_length; i++) {
+        json_->at(field_name).emplace_back(accessor(i));
+      }
+    } else {
+      json_->emplace(std::pair(field_name, nlohmann::json::array()));
+      for (int i = 0; i < vec_length; i++) {
+        json_->at(field_name).emplace_back(accessor(i));
+      }
+    }
+  }
+
+  void AddDoubleVectorSubfolder(std::string subfolder_name, std::string field_name, py::array_t<double> field_vector) {
+    int vec_length = field_vector.size();
+    auto accessor = field_vector.mutable_unchecked<1>();
+    if (json_->contains(subfolder_name)) {
+      if (json_->at(subfolder_name).contains(field_name)) {
+        json_->at(subfolder_name).at(field_name).clear();
+        for (int i = 0; i < vec_length; i++) {
+          json_->at(subfolder_name).at(field_name).emplace_back(accessor(i));
+        }
+      } else {
+        json_->at(subfolder_name).emplace(std::pair(field_name, nlohmann::json::array()));
+        for (int i = 0; i < vec_length; i++) {
+          json_->at(subfolder_name).at(field_name).emplace_back(accessor(i));
+        }
+      }
+    } else {
+      json_->emplace(std::pair(subfolder_name, nlohmann::json::object()));
+      json_->at(subfolder_name).emplace(std::pair(field_name, nlohmann::json::array()));
+      for (int i = 0; i < vec_length; i++) {
+        json_->at(subfolder_name).at(field_name).emplace_back(accessor(i));
+      }
+    }
+  }
+
+  void AddStringVector(std::string field_name, std::vector<std::string>& field_vector) {
+    int vec_length = field_vector.size();
+    if (json_->contains(field_name)) {
+      json_->at(field_name).clear();
+      for (int i = 0; i < vec_length; i++) {
+        json_->at(field_name).emplace_back(field_vector.at(i));
+      }
+    } else {
+      json_->emplace(std::pair(field_name, nlohmann::json::array()));
+      for (int i = 0; i < vec_length; i++) {
+        json_->at(field_name).emplace_back(field_vector.at(i));
+      }
+    }
+  }
+
+  void AddStringVectorSubfolder(std::string subfolder_name, std::string field_name, std::vector<std::string>& field_vector) {
+    int vec_length = field_vector.size();
+    if (json_->contains(subfolder_name)) {
+      if (json_->at(subfolder_name).contains(field_name)) {
+        json_->at(subfolder_name).at(field_name).clear();
+        for (int i = 0; i < vec_length; i++) {
+          json_->at(subfolder_name).at(field_name).emplace_back(field_vector.at(i));
+        }
+      } else {
+        json_->at(subfolder_name).emplace(std::pair(field_name, nlohmann::json::array()));
+        for (int i = 0; i < vec_length; i++) {
+          json_->at(subfolder_name).at(field_name).emplace_back(field_vector.at(i));
+        }
+      }
+    } else {
+      json_->emplace(std::pair(subfolder_name, nlohmann::json::object()));
+      json_->at(subfolder_name).emplace(std::pair(field_name, nlohmann::json::array()));
+      for (int i = 0; i < vec_length; i++) {
+        json_->at(subfolder_name).at(field_name).emplace_back(field_vector.at(i));
+      }
+    }
+  }
+
+  bool ContainsField(std::string field_name) {
+    if (json_->contains(field_name)) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  bool ContainsFieldSubfolder(std::string subfolder_name, std::string field_name) {
+    if (json_->contains(subfolder_name)) {
+      if (json_->at(subfolder_name).contains(field_name)) {
+        return true;
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  double ExtractDouble(std::string field_name) {
+    return json_->at(field_name);
+  }
+
+  double ExtractDoubleSubfolder(std::string subfolder_name, std::string field_name) {
+    return json_->at(subfolder_name).at(field_name);
+  }
+
+  bool ExtractBool(std::string field_name) {
+    return json_->at(field_name);
+  }
+
+  bool ExtractBoolSubfolder(std::string subfolder_name, std::string field_name) {
+    return json_->at(subfolder_name).at(field_name);
+  }
+
+  std::string ExtractString(std::string field_name) {
+    return json_->at(field_name);
+  }
+
+  std::string ExtractStringSubfolder(std::string subfolder_name, std::string field_name) {
+    return json_->at(subfolder_name).at(field_name);
+  }
+
+  py::array_t<double> ExtractDoubleVector(std::string field_name) {
+    auto json_vec = json_->at(field_name);
+    ssize_t json_vec_length = json_->at(field_name).size();
+    auto result = py::array_t<double>(py::detail::any_container<ssize_t>({json_vec_length}));
+    auto accessor = result.mutable_unchecked<1>();
+    for (size_t i = 0; i < json_vec_length; i++) {
+      accessor(i) = json_vec.at(i);
+    }
+    return result;
+  }
+
+  py::array_t<double> ExtractDoubleVectorSubfolder(std::string subfolder_name, std::string field_name) {
+    auto json_vec = json_->at(subfolder_name).at(field_name);
+    ssize_t json_vec_length = json_->at(subfolder_name).at(field_name).size();
+    auto result = py::array_t<double>(py::detail::any_container<ssize_t>({json_vec_length}));
+    auto accessor = result.mutable_unchecked<1>();
+    for (size_t i = 0; i < json_vec_length; i++) {
+      accessor(i) = json_vec.at(i);
+    }
+    return result;
+  }
+
+  std::vector<std::string> ExtractStringVector(std::string field_name) {
+    auto json_vec = json_->at(field_name);
+    ssize_t json_vec_length = json_->at(field_name).size();
+    auto result = std::vector<std::string>(json_vec_length);
+    for (size_t i = 0; i < json_vec_length; i++) {
+      result.at(i) = json_vec.at(i);
+    }
+    return result;
+  }
+
+  std::vector<std::string> ExtractStringVectorSubfolder(std::string subfolder_name, std::string field_name) {
+    auto json_vec = json_->at(subfolder_name).at(field_name);
+    ssize_t json_vec_length = json_->at(subfolder_name).at(field_name).size();
+    auto result = std::vector<std::string>(json_vec_length);
+    for (size_t i = 0; i < json_vec_length; i++) {
+      result.at(i) = json_vec.at(i);
+    }
+    return result;
+  }
+
+  nlohmann::json SubsetJsonForest(std::string forest_label) {
+    return json_->at("forests").at(forest_label);
+  }
 
  private:
   std::unique_ptr<nlohmann::json> json_;
 };
 
+void ForestContainerCpp::LoadFromJson(JsonCpp& json, std::string forest_label) {
+  nlohmann::json forest_json = json.SubsetJsonForest(forest_label);
+  forest_samples_->Reset();
+  forest_samples_->from_json(forest_json);
+}
+
 PYBIND11_MODULE(stochtree_cpp, m) {
-    py::class_<ForestDatasetCpp>(m, "ForestDatasetCpp")
-        .def(py::init<>())
-        .def("AddCovariates", &ForestDatasetCpp::AddCovariates)
-        .def("AddBasis", &ForestDatasetCpp::AddBasis)
-        .def("UpdateBasis", &ForestDatasetCpp::UpdateBasis)
-        .def("AddVarianceWeights", &ForestDatasetCpp::AddVarianceWeights)
-        .def("NumRows", &ForestDatasetCpp::NumRows);
+  py::class_<JsonCpp>(m, "JsonCpp")
+    .def(py::init<>())
+    .def("LoadFile", &JsonCpp::LoadFile)
+    .def("SaveFile", &JsonCpp::SaveFile)
+    .def("DumpJson", &JsonCpp::DumpJson)
+    .def("AddDouble", &JsonCpp::AddDouble)
+    .def("AddDoubleSubfolder", &JsonCpp::AddDoubleSubfolder)
+    .def("AddBool", &JsonCpp::AddBool)
+    .def("AddBoolSubfolder", &JsonCpp::AddBoolSubfolder)
+    .def("AddString", &JsonCpp::AddString)
+    .def("AddStringSubfolder", &JsonCpp::AddStringSubfolder)
+    .def("AddDoubleVector", &JsonCpp::AddDoubleVector)
+    .def("AddDoubleVectorSubfolder", &JsonCpp::AddDoubleVectorSubfolder)
+    .def("AddStringVector", &JsonCpp::AddStringVector)
+    .def("AddStringVectorSubfolder", &JsonCpp::AddStringVectorSubfolder)
+    .def("AddForest", &JsonCpp::AddForest)
+    .def("ContainsField", &JsonCpp::ContainsField)
+    .def("ContainsFieldSubfolder", &JsonCpp::ContainsFieldSubfolder)
+    .def("ExtractDouble", &JsonCpp::ExtractDouble)
+    .def("ExtractDoubleSubfolder", &JsonCpp::ExtractDoubleSubfolder)
+    .def("ExtractBool", &JsonCpp::ExtractBool)
+    .def("ExtractBoolSubfolder", &JsonCpp::ExtractBoolSubfolder)
+    .def("ExtractString", &JsonCpp::ExtractString)
+    .def("ExtractStringSubfolder", &JsonCpp::ExtractStringSubfolder)
+    .def("ExtractDoubleVector", &JsonCpp::ExtractDoubleVector)
+    .def("ExtractDoubleVectorSubfolder", &JsonCpp::ExtractDoubleVectorSubfolder)
+    .def("ExtractStringVector", &JsonCpp::ExtractStringVector)
+    .def("ExtractStringVectorSubfolder", &JsonCpp::ExtractStringVectorSubfolder)
+    .def("SubsetJsonForest", &JsonCpp::SubsetJsonForest);
+  
+  py::class_<ForestDatasetCpp>(m, "ForestDatasetCpp")
+    .def(py::init<>())
+    .def("AddCovariates", &ForestDatasetCpp::AddCovariates)
+    .def("AddBasis", &ForestDatasetCpp::AddBasis)
+    .def("UpdateBasis", &ForestDatasetCpp::UpdateBasis)
+    .def("AddVarianceWeights", &ForestDatasetCpp::AddVarianceWeights)
+    .def("NumRows", &ForestDatasetCpp::NumRows);
 
-    py::class_<ResidualCpp>(m, "ResidualCpp")
-        .def(py::init<py::array_t<double>,data_size_t>());
+  py::class_<ResidualCpp>(m, "ResidualCpp")
+    .def(py::init<py::array_t<double>,data_size_t>());
 
-    py::class_<RngCpp>(m, "RngCpp")
-        .def(py::init<int>());
+  py::class_<RngCpp>(m, "RngCpp")
+    .def(py::init<int>());
 
-    py::class_<ForestContainerCpp>(m, "ForestContainerCpp")
-        .def(py::init<int,int,bool>())
-        .def("OutputDimension", &ForestContainerCpp::OutputDimension)
-        .def("NumSamples", &ForestContainerCpp::NumSamples)
-        .def("Predict", &ForestContainerCpp::Predict)
-        .def("PredictRaw", &ForestContainerCpp::PredictRaw)
-        .def("PredictRawSingleForest", &ForestContainerCpp::PredictRawSingleForest)
-        .def("SetRootValue", &ForestContainerCpp::SetRootValue)
-        .def("SetRootVector", &ForestContainerCpp::SetRootVector)
-        .def("UpdateResidual", &ForestContainerCpp::UpdateResidual)
-        .def("SaveJson", &ForestContainerCpp::SaveJson)
-        .def("LoadFromJson", &ForestContainerCpp::LoadFromJson);
+  py::class_<ForestContainerCpp>(m, "ForestContainerCpp")
+    .def(py::init<int,int,bool>())
+    .def("OutputDimension", &ForestContainerCpp::OutputDimension)
+    .def("NumSamples", &ForestContainerCpp::NumSamples)
+    .def("Predict", &ForestContainerCpp::Predict)
+    .def("PredictRaw", &ForestContainerCpp::PredictRaw)
+    .def("PredictRawSingleForest", &ForestContainerCpp::PredictRawSingleForest)
+    .def("SetRootValue", &ForestContainerCpp::SetRootValue)
+    .def("SetRootVector", &ForestContainerCpp::SetRootVector)
+    .def("UpdateResidual", &ForestContainerCpp::UpdateResidual)
+    .def("SaveToJsonFile", &ForestContainerCpp::SaveToJsonFile)
+    .def("LoadFromJsonFile", &ForestContainerCpp::LoadFromJsonFile)
+    .def("LoadFromJson", &ForestContainerCpp::LoadFromJson);
 
-    py::class_<ForestSamplerCpp>(m, "ForestSamplerCpp")
-        .def(py::init<ForestDatasetCpp&, py::array_t<int>, int, data_size_t, double, double, int>())
-        .def("SampleOneIteration", &ForestSamplerCpp::SampleOneIteration);
+  py::class_<ForestSamplerCpp>(m, "ForestSamplerCpp")
+    .def(py::init<ForestDatasetCpp&, py::array_t<int>, int, data_size_t, double, double, int>())
+    .def("SampleOneIteration", &ForestSamplerCpp::SampleOneIteration);
 
-    py::class_<GlobalVarianceModelCpp>(m, "GlobalVarianceModelCpp")
-        .def(py::init<>())
-        .def("SampleOneIteration", &GlobalVarianceModelCpp::SampleOneIteration);
+  py::class_<GlobalVarianceModelCpp>(m, "GlobalVarianceModelCpp")
+    .def(py::init<>())
+    .def("SampleOneIteration", &GlobalVarianceModelCpp::SampleOneIteration);
 
-    py::class_<LeafVarianceModelCpp>(m, "LeafVarianceModelCpp")
-        .def(py::init<>())
-        .def("SampleOneIteration", &LeafVarianceModelCpp::SampleOneIteration);
-
-    py::class_<JsonCpp>(m, "JsonCpp")
-        .def(py::init<>());
+  py::class_<LeafVarianceModelCpp>(m, "LeafVarianceModelCpp")
+    .def(py::init<>())
+    .def("SampleOneIteration", &LeafVarianceModelCpp::SampleOneIteration);
 
 #ifdef VERSION_INFO
-    m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);
+  m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);
 #else
-    m.attr("__version__") = "dev";
+  m.attr("__version__") = "dev";
 #endif
 }
