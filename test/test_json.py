@@ -47,11 +47,13 @@ class TestJson:
 
         # Train a BART model
         bart_model = BARTModel()
-        bart_model.sample(X_train=X, y_train=y, num_gfr=10, num_mcmc=100)
+        bart_model.sample(X_train=X, y_train=y, num_gfr=10, num_mcmc=10)
 
         # Extract original predictions
-        forest_preds_y_mcmc = bart_model.y_hat_train
-        y_avg_mcmc = np.squeeze(forest_preds_y_mcmc).mean(axis = 1, keepdims = True).squeeze()
+        forest_preds_y_mcmc_cached = bart_model.y_hat_train
+
+        # Extract original predictions
+        forest_preds_y_mcmc_retrieved = bart_model.predict(X)
 
         # Roundtrip to / from JSON
         json_test = JSONSerializer()
@@ -61,10 +63,9 @@ class TestJson:
         # Predict from the deserialized forest container
         forest_dataset = Dataset()
         forest_dataset.add_covariates(X)
-        forest_preds_json_reload = forest_container.predict(forest_dataset)
-        y_avg_mcmc_json_reload = np.squeeze(forest_preds_json_reload).mean(axis = 1, keepdims = True).squeeze()
-        y_avg_mcmc_json_reload = y_avg_mcmc_json_reload*bart_model.y_std + bart_model.y_bar
-
+        forest_preds_json_reload = forest_container.predict(forest_dataset)[:,bart_model.keep_indices]
+        forest_preds_json_reload = forest_preds_json_reload*bart_model.y_std + bart_model.y_bar
         # Check the predictions
-        np.testing.assert_almost_equal(y_avg_mcmc, y_avg_mcmc_json_reload)
+        np.testing.assert_almost_equal(forest_preds_y_mcmc_cached, forest_preds_json_reload)
+        np.testing.assert_almost_equal(forest_preds_y_mcmc_retrieved, forest_preds_json_reload)
         
