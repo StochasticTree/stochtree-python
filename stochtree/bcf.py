@@ -12,6 +12,9 @@ from .sampler import ForestSampler, RNG, GlobalVarianceModel, LeafVarianceModel
 from .utils import NotSampledError
 
 class BCFModel:
+    """Class that handles sampling, storage, and serialization of causal BART models like BCF, XBCF, and Warm-Start BCF
+    """
+
     def __init__(self) -> None:
         # Internal flag for whether the sample() method has been run
         self.sampled = False

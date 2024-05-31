@@ -3,6 +3,7 @@ Python classes wrapping C++ forest container object
 """
 import numpy as np
 from .data import Dataset, Residual
+# from .serialization import JSONSerializer
 from stochtree_cpp import ForestContainerCpp
 from typing import Union
 
@@ -35,8 +36,9 @@ class ForestContainer:
         else:
             self.forest_container_cpp.SetRootValue(forest_num, leaf_value)
 
-    def save_json(self, json_filename: str) -> None:
-        self.forest_container_cpp.SaveJson(json_filename)
+    def save_to_json_file(self, json_filename: str) -> None:
+        self.forest_container_cpp.SaveToJsonFile(json_filename)
 
-    def load_from_json(self, json_filename: str) -> None:
-        self.forest_container_cpp.LoadFromJson(json_filename)
+    def load_from_json_file(self, json_filename: str) -> None:
+        self.forest_container_cpp.LoadFromJsonFile(json_filename)
+    

@@ -299,8 +299,9 @@ class BARTModel:
         # Convert everything to standard shape (2-dimensional)
         if covariates.ndim == 1:
             covariates = np.expand_dims(covariates, 1)
-        if basis.ndim == 1:
-            basis = np.expand_dims(basis, 1)
+        if basis is not None:
+            if basis.ndim == 1:
+                basis = np.expand_dims(basis, 1)
         
         # Data checks
         if basis is not None:
@@ -309,6 +310,7 @@ class BARTModel:
 
         pred_dataset = Dataset()
         pred_dataset.add_covariates(covariates)
-        pred_dataset.add_basis(basis)
+        if basis is not None:
+            pred_dataset.add_basis(basis)
         pred_raw = self.forest_container.forest_container_cpp.Predict(pred_dataset.dataset_cpp)
         return pred_raw[:,self.keep_indices]*self.y_std + self.y_bar
