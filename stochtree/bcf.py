@@ -37,86 +37,103 @@ class BCFModel:
         """Runs a BCF sampler on provided training set. Outcome predictions and estimates of the prognostic and treatment effect functions 
         will be cached for the training set and (if provided) the test set.
 
-        :param X_train: Covariates used to split trees in the ensemble. Can be passed as either a matrix or dataframe.
-        :type X_train: np.array
-        :param Z_train: Vector of (continuous or binary) treatment assignments.
-        :type Z_train: np.array
-        :param y_train: Outcome to be modeled by the ensemble.
-        :type y_train: np.array
-        :param pi_train: Optional vector of propensity scores. If not provided, this will be estimated from the data.
-        :type pi_train: np.array, optional
-        :param X_test: Optional test set of covariates used to define "out of sample" evaluation data.
-        :type X_test: np.array
-        :param Z_test: Optional test set of (continuous or binary) treatment assignments.
-        :type Z_test: np.array, optional
-        :param pi_test: Optional test set vector of propensity scores. If not provided (but ``X_test`` and ``Z_test`` are), this will be estimated from the data.
-        :type pi_test: np.array, optional
-        :param feature_types: Indicators of feature type (0 = numeric, 1 = ordered categorical, 2 = unordered categorical). If omitted, all covariates are assumed to be numeric.
-        :type feature_types: np.array, optional
-        :param cutpoint_grid_size: Maximum number of cutpoints to consider for each feature. Defaults to 100.
-        :type cutpoint_grid_size: int, optional
-        :param sigma_leaf_mu: Starting value of leaf node scale parameter for the prognostic forest. Calibrated internally as ``2/num_trees_mu`` if not set here.
-        :type sigma_leaf_mu: float, optional
-        :param sigma_leaf_tau: Starting value of leaf node scale parameter for the treatment effect forest. Calibrated internally as ``1/num_trees_mu`` if not set here.
-        :type sigma_leaf_tau: float, optional
-        :param alpha_mu: Prior probability of splitting for a tree of depth 0 for the prognostic forest. Tree split prior combines ``alpha_mu`` and ``beta_mu`` via ``alpha_mu*(1+node_depth)^-beta_mu``.
-        :type alpha_mu: float, optional
-        :param alpha_tau: Prior probability of splitting for a tree of depth 0 for the treatment effect forest. Tree split prior combines ``alpha_tau`` and ``beta_tau`` via ``alpha_tau*(1+node_depth)^-beta_tau``.
-        :type alpha_tau: float, optional
-        :param beta_mu: Exponent that decreases split probabilities for nodes of depth > 0 for the prognostic forest. Tree split prior combines ``alpha_mu`` and ``beta_mu`` via ``alpha_mu*(1+node_depth)^-beta_mu``.
-        :type beta_mu: float, optional
-        :param beta_tau: Exponent that decreases split probabilities for nodes of depth > 0 for the treatment effect forest. Tree split prior combines ``alpha_tau`` and ``beta_tau`` via ``alpha_tau*(1+node_depth)^-beta_tau``.
-        :type beta_tau: float, optional
-        :param min_samples_leaf_mu: Minimum allowable size of a leaf, in terms of training samples, for the prognostic forest. Defaults to 5.
-        :type min_samples_leaf_mu: int, optional
-        :param min_samples_leaf_tau: Minimum allowable size of a leaf, in terms of training samples, for the treatment effect forest. Defaults to 5.
-        :type min_samples_leaf_tau: int, optional
-        :param nu: Shape parameter in the ``IG(nu, nu*lambda)`` global error variance model. Defaults to 3.
-        :type nu: float, optional
-        :param lambda: Component of the scale parameter in the ``IG(nu, nu*lambda)`` global error variance prior. If not specified, this is calibrated as in Sparapani et al (2021).
-        :type lambda: float, optional
-        :param a_leaf_mu: Shape parameter in the ``IG(a_leaf_mu, b_leaf_mu)`` leaf node parameter variance model for the prognostic forest. Defaults to 3.
-        :type a_leaf_mu: float, optional
-        :param a_leaf_tau: Shape parameter in the ``IG(a_leaf_tau, b_leaf_tau)`` leaf node parameter variance model for the treatment effect forest. Defaults to 3.
-        :type a_leaf_tau: float, optional
-        :param b_leaf_mu: Scale parameter in the ``IG(a_leaf_mu, b_leaf_mu)`` leaf node parameter variance model for the prognostic forest. Calibrated internally as ``0.5/num_trees_mu`` if not set here.
-        :type b_leaf_mu: float, optional
-        :param b_leaf_tau: Scale parameter in the ``IG(a_leaf_tau, b_leaf_tau)`` leaf node parameter variance model for the treatment effect forest. Calibrated internally as ``0.5/num_trees_tau`` if not set here.
-        :type b_leaf_tau: float, optional
-        :param q: Quantile used to calibrated ``lambda`` as in Sparapani et al (2021). Defaults to 0.9.
-        :type q: float, optional
-        :param sigma2: Starting value of global variance parameter. Calibrated internally as in Sparapani et al (2021) if not set here.
-        :type sigma2: float, optional
-        :param num_trees_mu: Number of trees in the prognostic forest. Defaults to 200.
-        :type num_trees_mu: int, optional
-        :param num_trees: Number of trees in the treatment effect forest. Defaults to 50.
-        :type num_trees: int, optional
-        :param num_gfr: Number of "warm-start" iterations run using the grow-from-root algorithm (He and Hahn, 2021). Defaults to 5.
-        :type num_gfr: int, optional
-        :param num_burnin: Number of "burn-in" iterations of the MCMC sampler. Defaults to 0.
-        :type num_burnin: int, optional
-        :param num_mcmc: Number of "retained" iterations of the MCMC sampler. Defaults to 100. If this is set to 0, GFR (XBART) samples will be retained.
-        :type num_mcmc: int, optional
-        :param sample_sigma_global: Whether or not to update the ``sigma^2`` global error variance parameter based on ``IG(nu, nu*lambda)``. Defaults to True.
-        :type sample_sigma_global: bool, optional
-        :param sample_sigma_leaf_mu: Whether or not to update the leaf scale variance parameter based on ``IG(a_leaf_mu, b_leaf_mu)`` for the prognostic forest. Defaults to True.
-        :type sample_sigma_leaf_mu: bool, optional
-        :param sample_sigma_leaf_tau: Whether or not to update the leaf scale variance parameter based on ``IG(a_leaf_tau, b_leaf_tau)`` for the treatment effect forest. Defaults to True.
-        :type sample_sigma_leaf_tau: bool, optional
-        :param propensity_covariate: Whether to include the propensity score as a covariate in either or both of the forests. Enter "none" for neither, "mu" for the prognostic forest, "tau" for the treatment forest, and "both" for both forests. If this is not "none" and a propensity score is not provided, it will be estimated from (``X_train``, ``Z_train``) using ``BARTModel``. Defaults to "mu".
-        :type propensity_covariate: string, optional
-        :param adaptive_coding: Whether or not to use an "adaptive coding" scheme in which a binary treatment variable is not coded manually as (0,1) or (-1,1) but learned via parameters ``b_0`` and ``b_1`` that attach to the outcome model ``[b_0 (1-Z) + b_1 Z] tau(X)``. This is ignored when Z is not binary. Defaults to True.
-        :type adaptive_coding: bool, optional
-        :param b_0: Initial value of the "control" group coding parameter. This is ignored when Z is not binary. Default: -0.5.
-        :type b_0: bool, optional
-        :param b_1: Initial value of the "control" group coding parameter. This is ignored when Z is not binary. Default: 0.5.
-        :type b_1: bool, optional
-        :param random_seed: Integer parameterizing the C++ random number generator. If not specified, the C++ random number generator is seeded according to ``std::random_device``.
-        :type random_seed: int, optional
-        :param keep_burnin: Whether or not "burnin" samples should be included in predictions. Defaults to False. Ignored if num_mcmc = 0.
-        :type keep_burnin: bool, optional
-        :param keep_gfr: Whether or not "warm-start" / grow-from-root samples should be included in predictions. Defaults to False. Ignored if num_mcmc = 0.
-        :type keep_gfr: bool, optional
+        Parameters
+        ----------
+        X_train : np.array or pd.DataFrame
+            Covariates used to split trees in the ensemble. Can be passed as either a matrix or dataframe.
+        Z_train : np.array
+            Array of (continuous or binary) treatment assignments.
+        y_train : np.array
+            Outcome to be modeled by the ensemble.
+        pi_train : np.array
+            Optional vector of propensity scores. If not provided, this will be estimated from the data.
+        X_test : :obj:`np.array`, optional
+            Optional test set of covariates used to define "out of sample" evaluation data.
+        Z_test : :obj:`np.array`, optional
+            Optional test set of (continuous or binary) treatment assignments.
+            Must be provided if ``X_test`` is provided.
+        pi_test : :obj:`np.array`, optional
+            Optional test set vector of propensity scores. If not provided (but ``X_test`` and ``Z_test`` are), this will be estimated from the data.
+        feature_types : :obj:`np.array`, optional
+            Indicators of feature type (0 = numeric, 1 = ordered categorical, 2 = unordered categorical). 
+            If omitted, all covariates are assumed to be numeric.
+        cutpoint_grid_size : :obj:`int`, optional
+            Maximum number of cutpoints to consider for each feature. Defaults to ``100``.
+        sigma_leaf_mu : :obj:`float`, optional
+            Starting value of leaf node scale parameter for the prognostic forest. Calibrated internally as ``2/num_trees_mu`` if not set here.
+        sigma_leaf_tau : :obj:`float`, optional
+            Starting value of leaf node scale parameter for the treatment effect forest. Calibrated internally as ``1/num_trees_mu`` if not set here.
+        alpha_mu : :obj:`float`, optional
+            Prior probability of splitting for a tree of depth 0 for the prognostic forest. 
+            Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
+        alpha_tau : :obj:`float`, optional
+            Prior probability of splitting for a tree of depth 0 for the treatment effect forest. 
+            Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
+        beta_mu : :obj:`float`, optional
+            Exponent that decreases split probabilities for nodes of depth > 0 for the prognostic forest. 
+            Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
+        beta_tau : :obj:`float`, optional
+            Exponent that decreases split probabilities for nodes of depth > 0 for the treatment effect forest. 
+            Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
+        min_samples_leaf_mu : :obj:`int`, optional
+            Minimum allowable size of a leaf, in terms of training samples, for the prognostic forest. Defaults to ``5``.
+        min_samples_leaf_tau : :obj:`int`, optional
+            Minimum allowable size of a leaf, in terms of training samples, for the treatment effect forest. Defaults to ``5``.
+        nu : :obj:`float`, optional
+            Shape parameter in the ``IG(nu, nu*lamb)`` global error variance model. Defaults to ``3``.
+        lamb : :obj:`float`, optional
+            Component of the scale parameter in the ``IG(nu, nu*lambda)`` global error variance prior. If not specified, this is calibrated as in Sparapani et al (2021).
+        a_leaf_mu : :obj:`float`, optional
+            Shape parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model for the prognostic forest. Defaults to ``3``.
+        a_leaf_tau : :obj:`float`, optional
+            Shape parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model for the treatment effect forest. Defaults to ``3``.
+        b_leaf_mu : :obj:`float`, optional
+            Scale parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model for the prognostic forest. Calibrated internally as ``0.5/num_trees`` if not set here.
+        b_leaf_tau : :obj:`float`, optional
+            Scale parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model for the treatment effect forest. Calibrated internally as ``0.5/num_trees`` if not set here.
+        q : :obj:`float`, optional
+            Quantile used to calibrated ``lamb`` as in Sparapani et al (2021). Defaults to ``0.9``.
+        sigma2 : :obj:`float`, optional
+            Starting value of global variance parameter. Calibrated internally as in Sparapani et al (2021) if not set here.
+        num_trees_mu : :obj:`int`, optional
+            Number of trees in the prognostic forest. Defaults to ``200``.
+        num_trees_tau : :obj:`int`, optional
+            Number of trees in the treatment effect forest. Defaults to ``50``.
+        num_gfr : :obj:`int`, optional
+            Number of "warm-start" iterations run using the grow-from-root algorithm (He and Hahn, 2021). Defaults to ``5``.
+        num_burnin : :obj:`int`, optional
+            Number of "burn-in" iterations of the MCMC sampler. Defaults to ``0``. Ignored if ``num_gfr > 0``.
+        num_mcmc : :obj:`int`, optional
+            Number of "retained" iterations of the MCMC sampler. Defaults to ``100``. If this is set to 0, GFR (XBART) samples will be retained.
+        sample_sigma_global : :obj:`bool`, optional
+            Whether or not to update the ``sigma^2`` global error variance parameter based on ``IG(nu, nu*lambda)``. Defaults to ``True``.
+        sample_sigma_leaf_mu : :obj:`bool`, optional
+            Whether or not to update the ``tau`` leaf scale variance parameter based on ``IG(a_leaf, b_leaf)`` for the prognostic forest. 
+            Cannot (currently) be set to true if ``basis_train`` has more than one column. Defaults to ``True``.
+        sample_sigma_leaf_tau : :obj:`bool`, optional
+            Whether or not to update the ``tau`` leaf scale variance parameter based on ``IG(a_leaf, b_leaf)`` for the treatment effect forest. 
+            Cannot (currently) be set to true if ``basis_train`` has more than one column. Defaults to ``True``.
+        propensity_covariate : :obj:`str`, optional
+            Whether to include the propensity score as a covariate in either or both of the forests. Enter ``"none"`` for neither, ``"mu"`` for the prognostic forest, ``"tau"`` for the treatment forest, and ``"both"`` for both forests. 
+            If this is not ``"none"`` and a propensity score is not provided, it will be estimated from (``X_train``, ``Z_train``) using ``BARTModel``. Defaults to ``"mu"``.
+        adaptive_coding : :obj:`bool`, optional
+            Whether or not to use an "adaptive coding" scheme in which a binary treatment variable is not coded manually as (0,1) or (-1,1) but learned via 
+            parameters ``b_0`` and ``b_1`` that attach to the outcome model ``[b_0 (1-Z) + b_1 Z] tau(X)``. This is ignored when Z is not binary. Defaults to True.
+        b_0 : :obj:`float`, optional
+            Initial value of the "control" group coding parameter. This is ignored when ``Z`` is not binary. Default: ``-0.5``.
+        b_1 : :obj:`float`, optional
+            Initial value of the "treated" group coding parameter. This is ignored when ``Z`` is not binary. Default: ``0.5``.
+        random_seed : :obj:`int`, optional
+            Integer parameterizing the C++ random number generator. If not specified, the C++ random number generator is seeded according to ``std::random_device``.
+        keep_burnin : :obj:`bool`, optional
+            Whether or not "burnin" samples should be included in predictions. Defaults to ``False``. Ignored if ``num_mcmc == 0``.
+        keep_gfr : :obj:`bool`, optional
+            Whether or not "warm-start" / grow-from-root samples should be included in predictions. Defaults to ``False``. Ignored if ``num_mcmc == 0``.
+        
+        Returns
+        -------
+        self : BCFModel
+            Sampled BCF Model.
         """
         # Convert everything to standard shape (2-dimensional)
         if X_train.ndim == 1:
@@ -496,14 +513,19 @@ class BCFModel:
     def predict_tau(self, X: np.array, Z: np.array, propensity: np.array = None) -> np.array:
         """Predict CATE function for every provided observation.
 
-        :param X: Test set covariates
-        :type X: np.array
-        :param Z: Test set treatment indicators
-        :type Z: np.array
-        :param propensity: Optional test set propensities. Must be provided if propensities were provided when ``.sample()`` was run and propensity scores were included in the CATE model.
-        :type propensity: np.array, optional
-        :return: Array with as many rows as in ``X`` and as many columns as retained samples of the algorithm.
-        :rtype: np.array
+        Parameters
+        ----------
+        X : np.array or pd.DataFrame
+            Test set covariates.
+        Z : np.array
+            Test set treatment indicators.
+        propensity : :obj:`np.array`, optional
+            Optional test set propensities. Must be provided if propensities were provided when the model was sampled.
+        
+        Returns
+        -------
+        np.array
+            Array with as many rows as in ``X`` and as many columns as retained samples of the algorithm.
         """
         if not self.is_sampled():
             msg = (
@@ -559,14 +581,21 @@ class BCFModel:
         """Predict outcome model components (CATE function and prognostic function) as well as overall outcome for every provided observation. 
         Predicted outcomes are computed as ``yhat = mu_x + Z*tau_x`` where mu_x is a sample of the prognostic function and tau_x is a sample of the treatment effect (CATE) function.
 
-        :param X: Test set covariates
-        :type X: np.array
-        :param Z: Test set treatment indicators
-        :type Z: np.array
-        :param propensity: Optional test set propensities. Must be provided if propensities were provided when ``.sample()`` was run.
-        :type propensity: np.array, optional
-        :return: Tuple of arrays with as many rows as in ``X`` and as many columns as retained samples of the algorithm. The first entry of the tuple contains conditional average treatment effect (CATE) samples, the second entry contains prognostic effect samples, and the third entry contains outcome prediction samples
-        :rtype: tuple
+        Parameters
+        ----------
+        X : np.array or pd.DataFrame
+            Test set covariates.
+        Z : np.array
+            Test set treatment indicators.
+        propensity : :obj:`np.array`, optional
+            Optional test set propensities. Must be provided if propensities were provided when the model was sampled.
+        
+        Returns
+        -------
+        tuple of np.array
+            Tuple of arrays with as many rows as in ``X`` and as many columns as retained samples of the algorithm. 
+            The first entry of the tuple contains conditional average treatment effect (CATE) samples, 
+            the second entry contains prognostic effect samples, and the third entry contains outcome prediction samples
         """
         if not self.is_sampled():
             msg = (
