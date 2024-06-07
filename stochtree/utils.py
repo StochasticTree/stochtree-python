@@ -1,4 +1,3 @@
-
 class NotSampledError(ValueError, AttributeError):
     """Exception class to raise if attempting to predict from a model before it has been sampled.
 
