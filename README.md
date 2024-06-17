@@ -1,5 +1,7 @@
 # StochasticTree Python Package
 
+**NOTE**: we are in the process of refactoring this project so that the R, Python, and C++ source code sits in the [same repo](https://github.com/StochasticTree/stochtree-cpp/).
+
 ## Getting started
 
 The python package can be installed from source. Before you begin, make sure you have [conda](https://www.anaconda.com/download) installed.
