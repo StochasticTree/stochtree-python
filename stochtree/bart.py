@@ -1,9 +1,13 @@
+"""
+Bayesian Additive Regression Trees (BART) module
+"""
 import numpy as np
 import pandas as pd
 from scipy.linalg import lstsq
 from scipy.stats import gamma
 from .data import Dataset, Residual
 from .forest import ForestContainer
+from .preprocessing import CovariateTransformer
 from .sampler import ForestSampler, RNG, GlobalVarianceModel, LeafVarianceModel
 from .utils import NotSampledError
 
@@ -20,67 +24,89 @@ class BARTModel:
         return self.sampled
     
     def sample(self, X_train: np.array, y_train: np.array, basis_train: np.array = None, X_test: np.array = None, basis_test: np.array = None, 
-               feature_types: np.array = None, cutpoint_grid_size = 100, sigma_leaf: float = None, alpha: float = 0.95, beta: float = 2.0, 
-               min_samples_leaf: int = 5, nu: float = 3, lamb: float = None, a_leaf: float = 3, b_leaf: float = None, q: float = 0.9, 
-               sigma2: float = None, num_trees: int = 200, num_gfr: int = 5, num_burnin: int = 0, num_mcmc: int = 100, 
-               sample_sigma_global: bool = True, sample_sigma_leaf: bool = True, random_seed: int = -1, 
-               keep_burnin: bool = False, keep_gfr: bool = False) -> None:
+               cutpoint_grid_size = 100, sigma_leaf: float = None, alpha: float = 0.95, beta: float = 2.0, min_samples_leaf: int = 5, 
+               nu: float = 3, lamb: float = None, a_leaf: float = 3, b_leaf: float = None, q: float = 0.9, sigma2: float = None, 
+               num_trees: int = 200, num_gfr: int = 5, num_burnin: int = 0, num_mcmc: int = 100, sample_sigma_global: bool = True, 
+               sample_sigma_leaf: bool = True, random_seed: int = -1, keep_burnin: bool = False, keep_gfr: bool = False) -> None:
         """Runs a BART sampler on provided training set. Predictions will be cached for the training set and (if provided) the test set. 
         Does not require a leaf regression basis. 
 
-        :param X_train: Training set covariates on which trees may be partitioned
-        :type X_train: np.array
-        :param y_train: Training set outcome
-        :type y_train: np.array
-        :param basis_train: Optional training set basis vector used to define a regression to be run in the leaves of each tree
-        :type basis_train: np.array, optional
-        :param X_test: Test set covariates on which trees may be partitioned
-        :type X_test: np.array
-        :param basis_test: Optional test set basis vector used to define a regression to be run in the leaves of each tree. Must be included / omitted consistently (i.e. if basis_train is provided, then basis_test must be provided alongside X_test).
-        :type basis_test: np.array, optional
-        :param feature_types: Indicators of feature type (0 = numeric, 1 = ordered categorical, 2 = unordered categorical). If omitted, all covariates are assumed to be numeric.
-        :type feature_types: np.array, optional
-        :param cutpoint_grid_size: Maximum number of cutpoints to consider for each feature. Defaults to 100.
-        :type cutpoint_grid_size: int, optional
-        :param sigma_leaf: Scale parameter on the leaf node regression model.
-        :type sigma_leaf: float, optional
-        :param alpha: Prior probability of splitting for a tree of depth 0. Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
-        :type alpha: float, optional
-        :param beta: Exponent that decreases split probabilities for nodes of depth > 0. Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
-        :type beta: float, optional
-        :param min_samples_leaf: Minimum allowable size of a leaf, in terms of training samples. Defaults to 5.
-        :type min_samples_leaf: int, optional
-        :param nu: Shape parameter in the ``IG(nu, nu*lambda)`` global error variance model. Defaults to 3.
-        :type nu: float, optional
-        :param lambda: Component of the scale parameter in the ``IG(nu, nu*lambda)`` global error variance prior. If not specified, this is calibrated as in Sparapani et al (2021).
-        :type lambda: float, optional
-        :param a_leaf: Shape parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model. Defaults to 3.
-        :type a_leaf: float, optional
-        :param b_leaf: Scale parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model. Calibrated internally as ``0.5/num_trees`` if not set here.
-        :type b_leaf: float, optional
-        :param q: Quantile used to calibrated ``lambda`` as in Sparapani et al (2021). Defaults to 0.9.
-        :type q: float, optional
-        :param sigma2: Starting value of global variance parameter. Calibrated internally as in Sparapani et al (2021) if not set here.
-        :type sigma2: float, optional
-        :param num_trees: Number of trees in the ensemble. Defaults to 200.
-        :type num_trees: int, optional
-        :param num_gfr: Number of "warm-start" iterations run using the grow-from-root algorithm (He and Hahn, 2021). Defaults to 5.
-        :type num_gfr: int, optional
-        :param num_burnin: Number of "burn-in" iterations of the MCMC sampler. Defaults to 0.
-        :type num_burnin: int, optional
-        :param num_mcmc: Number of "retained" iterations of the MCMC sampler. Defaults to 100. If this is set to 0, GFR (XBART) samples will be retained.
-        :type num_mcmc: int, optional
-        :param sample_sigma_global: Whether or not to update the ``sigma^2`` global error variance parameter based on ``IG(nu, nu*lambda)``. Defaults to True.
-        :type sample_sigma_global: bool, optional
-        :param sample_sigma_leaf: Whether or not to update the ``tau`` leaf scale variance parameter based on ``IG(a_leaf, b_leaf)``. Cannot (currently) be set to true if ``basis_train`` has more than one column. Defaults to True.
-        :type sample_sigma_leaf: bool, optional
-        :param random_seed: Integer parameterizing the C++ random number generator. If not specified, the C++ random number generator is seeded according to ``std::random_device``.
-        :type random_seed: int, optional
-        :param keep_burnin: Whether or not "burnin" samples should be included in predictions. Defaults to False. Ignored if num_mcmc = 0.
-        :type keep_burnin: bool, optional
-        :param keep_gfr: Whether or not "warm-start" / grow-from-root samples should be included in predictions. Defaults to False. Ignored if num_mcmc = 0.
-        :type keep_gfr: bool, optional
+        Parameters
+        ----------
+        X_train : np.array
+            Training set covariates on which trees may be partitioned.
+        y_train : np.array
+            Training set outcome.
+        basis_train : :obj:`np.array`, optional
+            Optional training set basis vector used to define a regression to be run in the leaves of each tree.
+        X_test : :obj:`np.array`, optional
+            Optional test set covariates.
+        basis_test : :obj:`np.array`, optional
+            Optional test set basis vector used to define a regression to be run in the leaves of each tree. 
+            Must be included / omitted consistently (i.e. if basis_train is provided, then basis_test must be provided alongside X_test).
+        cutpoint_grid_size : :obj:`int`, optional
+            Maximum number of cutpoints to consider for each feature. Defaults to ``100``.
+        sigma_leaf : :obj:`float`, optional
+            Scale parameter on the leaf node regression model.
+        alpha : :obj:`float`, optional
+            Prior probability of splitting for a tree of depth 0. 
+            Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
+        beta : :obj:`float`, optional
+            Exponent that decreases split probabilities for nodes of depth > 0. 
+            Tree split prior combines ``alpha`` and ``beta`` via ``alpha*(1+node_depth)^-beta``.
+        min_samples_leaf : :obj:`int`, optional
+            Minimum allowable size of a leaf, in terms of training samples. Defaults to ``5``.
+        nu : :obj:`float`, optional
+            Shape parameter in the ``IG(nu, nu*lamb)`` global error variance model. Defaults to ``3``.
+        lamb : :obj:`float`, optional
+            Component of the scale parameter in the ``IG(nu, nu*lambda)`` global error variance prior. If not specified, this is calibrated as in Sparapani et al (2021).
+        a_leaf : :obj:`float`, optional
+            Shape parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model. Defaults to ``3``.
+        b_leaf : :obj:`float`, optional
+            Scale parameter in the ``IG(a_leaf, b_leaf)`` leaf node parameter variance model. Calibrated internally as ``0.5/num_trees`` if not set here.
+        q : :obj:`float`, optional
+            Quantile used to calibrated ``lamb`` as in Sparapani et al (2021). Defaults to ``0.9``.
+        sigma2 : :obj:`float`, optional
+            Starting value of global variance parameter. Calibrated internally as in Sparapani et al (2021) if not set here.
+        num_trees : :obj:`int`, optional
+            Number of trees in the ensemble. Defaults to ``200``.
+        num_gfr : :obj:`int`, optional
+            Number of "warm-start" iterations run using the grow-from-root algorithm (He and Hahn, 2021). Defaults to ``5``.
+        num_burnin : :obj:`int`, optional
+            Number of "burn-in" iterations of the MCMC sampler. Defaults to ``0``. Ignored if ``num_gfr > 0``.
+        num_mcmc : :obj:`int`, optional
+            Number of "retained" iterations of the MCMC sampler. Defaults to ``100``. If this is set to 0, GFR (XBART) samples will be retained.
+        sample_sigma_global : :obj:`bool`, optional
+            Whether or not to update the ``sigma^2`` global error variance parameter based on ``IG(nu, nu*lambda)``. Defaults to ``True``.
+        sample_sigma_leaf : :obj:`bool`, optional
+            Whether or not to update the ``tau`` leaf scale variance parameter based on ``IG(a_leaf, b_leaf)``. Cannot (currently) be set to true if ``basis_train`` has more than one column. Defaults to ``True``.
+        random_seed : :obj:`int`, optional
+            Integer parameterizing the C++ random number generator. If not specified, the C++ random number generator is seeded according to ``std::random_device``.
+        keep_burnin : :obj:`bool`, optional
+            Whether or not "burnin" samples should be included in predictions. Defaults to ``False``. Ignored if ``num_mcmc == 0``.
+        keep_gfr : :obj:`bool`, optional
+            Whether or not "warm-start" / grow-from-root samples should be included in predictions. Defaults to ``False``. Ignored if ``num_mcmc == 0``.
+        
+        Returns
+        -------
+        self : BARTModel
+            Sampled BART Model.
         """
+        # Check data inputs
+        if not isinstance(X_train, pd.DataFrame) and not isinstance(X_train, np.ndarray):
+            raise ValueError("X_train must be a pandas dataframe or numpy array")
+        if X_test is not None:
+            if not isinstance(X_test, pd.DataFrame) and not isinstance(X_test, np.ndarray):
+                raise ValueError("X_test must be a pandas dataframe or numpy array")
+        if not isinstance(y_train, np.ndarray):
+            raise ValueError("y_train must be a numpy array")
+        if basis_train is not None:
+            if not isinstance(basis_train, np.ndarray):
+                raise ValueError("basis_train must be a numpy array")
+        if basis_test is not None:
+            if not isinstance(basis_test, np.ndarray):
+                raise ValueError("X_test must be a numpy array")
+        
         # Convert everything to standard shape (2-dimensional)
         if X_train.ndim == 1:
             X_train = np.expand_dims(X_train, 1)
@@ -114,6 +140,14 @@ class BARTModel:
         if X_test is not None and basis_test is not None:
             if X_test.shape[0] != basis_test.shape[0]:
                 raise ValueError("X_test and basis_test must have the same number of rows")
+        
+        # Covariate preprocessing
+        self._covariate_transformer = CovariateTransformer()
+        self._covariate_transformer.fit(X_train)
+        X_train_processed = self._covariate_transformer.transform(X_train)
+        if X_test is not None:
+            X_test_processed = self._covariate_transformer.transform(X_test)
+        feature_types = np.asarray(self._covariate_transformer._processed_feature_types)
 
         # Determine whether a test set is provided
         self.has_test = X_test is not None
@@ -123,16 +157,12 @@ class BARTModel:
 
         # Unpack data dimensions
         self.n_train = y_train.shape[0]
-        self.n_test = X_test.shape[0] if self.has_test else 0
-        self.num_covariates = X_train.shape[1]
+        self.n_test = X_test_processed.shape[0] if self.has_test else 0
+        self.num_covariates = X_train_processed.shape[1]
         self.num_basis = basis_train.shape[1] if self.has_basis else 0
-
-        # Set feature type defaults if not provided
-        if feature_types is None:
-            feature_types = np.zeros(self.num_covariates)
         
         # Set variable weights for the prognostic and treatment effect forests
-        variable_weights = np.repeat(1.0/X_train.shape[1], X_train.shape[1])
+        variable_weights = np.repeat(1.0/self.num_covariates, self.num_covariates)
 
         # Scale outcome
         self.y_bar = np.squeeze(np.mean(y_train))
@@ -141,7 +171,7 @@ class BARTModel:
 
         # Calibrate priors for global sigma^2 and sigma_leaf
         if lamb is None:
-            reg_basis = np.c_[np.ones(self.n_train),X_train]
+            reg_basis = np.c_[np.ones(self.n_train),X_train_processed]
             reg_soln = lstsq(reg_basis, np.squeeze(resid_train))
             sigma2hat = reg_soln[1] / self.n_train
             quantile_cutoff = q
@@ -166,12 +196,12 @@ class BARTModel:
         
         # Forest Dataset (covariates and optional basis)
         forest_dataset_train = Dataset()
-        forest_dataset_train.add_covariates(X_train)
+        forest_dataset_train.add_covariates(X_train_processed)
         if self.has_basis:
             forest_dataset_train.add_basis(basis_train)
         if self.has_test:
             forest_dataset_test = Dataset()
-            forest_dataset_test.add_covariates(X_test)
+            forest_dataset_test.add_covariates(X_test_processed)
             if self.has_basis:
                 forest_dataset_test.add_basis(basis_test)
 
@@ -282,12 +312,17 @@ class BARTModel:
     def predict(self, covariates: np.array, basis: np.array = None) -> np.array:
         """Predict outcome from every retained forest of a BART sampler.
 
-        :param covariates: Test set covariates
-        :type covariates: np.array
-        :param basis: Optional test set basis vector, must be provided if the model was trained with a leaf regression basis
-        :type basis: np.array, optional
-        :return: Array of predictions with as many rows as in ``covariates`` and as many columns as retained samples of the algorithm.
-        :rtype: np.array
+        Parameters
+        ----------
+        covariates : np.array
+            Test set covariates.
+        basis_train : :obj:`np.array`, optional
+            Optional test set basis vector, must be provided if the model was trained with a leaf regression basis.
+        
+        Returns
+        -------
+        np.array
+            Array of predictions with as many rows as in ``covariates`` and as many columns as retained samples of the algorithm.
         """
         if not self.is_sampled():
             msg = (
