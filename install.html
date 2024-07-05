@@ -258,42 +258,78 @@
         <article role="main" id="furo-main-content">
           <section id="installation">
 <h1>Installation<a class="headerlink" href="#installation" title="Permalink to this heading">¶</a></h1>
-<p>The python package can be installed from source. Clone the repo recursively (including git submodules) by running</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>git<span class="w"> </span>clone<span class="w"> </span>--recursive<span class="w"> </span>https://github.com/StochasticTree/stochtree-python.git
+<p>The python package is not yet on PyPI but can be installed from source using pip’s <a class="reference external" href="https://pip.pypa.io/en/stable/topics/vcs-support/">git interface</a>.
+To proceed, you will need a working version of <a class="reference external" href="https://git-scm.com">git</a> and python 3.8 or greater (available from several sources, one of the most
+straightforward being the <a class="reference external" href="https://docs.conda.io/projects/conda/en/stable/user-guide/install/index.html">anaconda</a> suite).</p>
+<p>The python package can be installed from github via pip (and will soon be available on PyPI).
+Clone the repo recursively (including git submodules) by running</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>git<span class="w"> </span>clone<span class="w"> </span>--recursive<span class="w"> </span>https://github.com/StochasticTree/stochtree.git
 </pre></div>
 </div>
-<section id="conda">
-<h2>Conda<a class="headerlink" href="#conda" title="Permalink to this heading">¶</a></h2>
-<p>Conda provides a straightforward experience in managing python dependencies, avoiding version conflicts / ABI issues / etc.
-Before you begin, make sure you have <a class="reference external" href="https://www.anaconda.com/download">conda</a> installed.
-Next, create and activate a conda environment with the requisite dependencies</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>stochtree-dev<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.10<span class="w"> </span>numpy<span class="w"> </span>scipy<span class="w"> </span>pytest<span class="w"> </span>pandas<span class="w"> </span>pybind11<span class="w"> </span>scikit-learn<span class="w"> </span>matplotlib<span class="w"> </span>seaborn
-<span class="gp">$ </span>conda<span class="w"> </span>activate<span class="w"> </span>stochtree-dev
-<span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>jupyterlab
-</pre></div>
-</div>
-<p>Then, navigate to the main <code class="docutils literal notranslate"><span class="pre">stochtree-python</span></code> project folder (i.e. <code class="docutils literal notranslate"><span class="pre">cd</span> <span class="pre">/path/to/stochtree-python</span></code>) and install the package locally via pip</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>.
+<section id="quick-start">
+<h2>Quick start<a class="headerlink" href="#quick-start" title="Permalink to this heading">¶</a></h2>
+<p>Without worrying about virtual environments (detailed further below), <code class="docutils literal notranslate"><span class="pre">stochtree</span></code> can be installed from the command line</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>numpy<span class="w"> </span>scipy<span class="w"> </span>pytest<span class="w"> </span>pandas<span class="w"> </span>scikit-learn<span class="w"> </span>pybind11
+<span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/StochasticTree/stochtree.git
 </pre></div>
 </div>
 </section>
-<section id="pip">
-<h2>pip<a class="headerlink" href="#pip" title="Permalink to this heading">¶</a></h2>
-<p>If you would rather avoid installing and setting up conda, you can alternatively setup the dependencies and install <code class="docutils literal notranslate"><span class="pre">stochtree</span></code> using only <code class="docutils literal notranslate"><span class="pre">pip</span></code> (caveat: this has not been extensively tested
-across platforms and python versions).</p>
-<p>First, navigate to the main <code class="docutils literal notranslate"><span class="pre">stochtree-python</span></code> project folder (i.e. <code class="docutils literal notranslate"><span class="pre">cd</span> <span class="pre">/path/to/stochtree-python</span></code>) and create and activate a virtual environment as a subfolder of the repo</p>
+<section id="virtual-environment-installation">
+<h2>Virtual environment installation<a class="headerlink" href="#virtual-environment-installation" title="Permalink to this heading">¶</a></h2>
+<p>Often, users prefer to manage different projects (with different package / python version requirements) in virtual environments.</p>
+<section id="conda">
+<h3>Conda<a class="headerlink" href="#conda" title="Permalink to this heading">¶</a></h3>
+<p>Conda provides a straightforward experience in managing python dependencies, avoiding version conflicts / ABI issues / etc.</p>
+<p>To build stochtree using a <code class="docutils literal notranslate"><span class="pre">conda</span></code> based workflow, first create and activate a conda environment with the requisite dependencies</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>stochtree-dev<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.10<span class="w"> </span>numpy<span class="w"> </span>scipy<span class="w"> </span>pytest<span class="w"> </span>pandas<span class="w"> </span>pybind11<span class="w"> </span>scikit-learn<span class="w"> </span>matplotlib<span class="w"> </span>seaborn
+<span class="gp">$ </span>conda<span class="w"> </span>activate<span class="w"> </span>stochtree-dev
+</pre></div>
+</div>
+<p>Then install the package from github via pip</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/StochasticTree/stochtree.git
+</pre></div>
+</div>
+<p>(<em>Note</em>: if you’d also like to run <code class="docutils literal notranslate"><span class="pre">stochtree</span></code>’s notebook examples, you will also need jupyterlab, seaborn, and matplotlib)</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>conda<span class="w"> </span>install<span class="w"> </span>matplotlib<span class="w"> </span>seaborn
+<span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>jupyterlab
+</pre></div>
+</div>
+<p>With these dependencies installed, you can <a class="reference internal" href="#cloning-the-repository"><span class="std std-ref">clone the repo</span></a> and run the <code class="docutils literal notranslate"><span class="pre">demo/</span></code> examples.</p>
+</section>
+<section id="venv">
+<h3>Venv<a class="headerlink" href="#venv" title="Permalink to this heading">¶</a></h3>
+<p>You could also use venv for environment management. First, navigate to the folder in which you usually store virtual environments
+(i.e. <code class="docutils literal notranslate"><span class="pre">cd</span> <span class="pre">/path/to/envs</span></code>) and create and activate a virtual environment:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
 <span class="gp">$ </span><span class="nb">source</span><span class="w"> </span>venv/bin/activate
 </pre></div>
 </div>
 <p>Install all of the package (and demo notebook) dependencies</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>numpy<span class="w"> </span>scipy<span class="w"> </span>pytest<span class="w"> </span>pandas<span class="w"> </span>scikit-learn<span class="w"> </span>pybind11<span class="w"> </span>matplotlib<span class="w"> </span>seaborn<span class="w"> </span>jupyterlab
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>numpy<span class="w"> </span>scipy<span class="w"> </span>pytest<span class="w"> </span>pandas<span class="w"> </span>scikit-learn<span class="w"> </span>pybind11
 </pre></div>
 </div>
 <p>Then install stochtree via</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>.
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/StochasticTree/stochtree.git
 </pre></div>
 </div>
+<p>As above, if you’d like to run the notebook examples in the <code class="docutils literal notranslate"><span class="pre">demo/</span></code> subfolder, you will also need jupyterlab, seaborn, and matplotlib and you will have to <a class="reference internal" href="#cloning-the-repository"><span class="std std-ref">clone the repo</span></a></p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span>matplotlib<span class="w"> </span>seaborn<span class="w"> </span>jupyterlab
+</pre></div>
+</div>
+</section>
+</section>
+<section id="cloning-the-repository">
+<span id="id1"></span><h2>Cloning the Repository<a class="headerlink" href="#cloning-the-repository" title="Permalink to this heading">¶</a></h2>
+<p>To clone the repository, you must have git installed, which you can do following <a class="reference external" href="https://learn.microsoft.com/en-us/devops/develop/git/install-and-set-up-git">these instructions</a>.</p>
+<p>Once git is available at the command line, navigate to the folder that will store this project (in bash / zsh, this is done by running <code class="docutils literal notranslate"><span class="pre">cd</span></code> followed by the path to the directory).
+Then, clone the <code class="docutils literal notranslate"><span class="pre">stochtree</span></code> repo as a subfolder by running</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>git<span class="w"> </span>clone<span class="w"> </span>--recursive<span class="w"> </span>https://github.com/StochasticTree/stochtree.git
+</pre></div>
+</div>
+<p><em>NOTE</em>: this project incorporates several dependencies as <a class="reference external" href="https://git-scm.com/book/en/v2/Git-Tools-Submodules">git submodules</a>,
+which is why the <code class="docutils literal notranslate"><span class="pre">--recursive</span></code> flag is necessary (some systems may perform a recursive clone without this flag, but
+<code class="docutils literal notranslate"><span class="pre">--recursive</span></code> ensures this behavior on all platforms). If you have already cloned the repo without the <code class="docutils literal notranslate"><span class="pre">--recursive</span></code> flag,
+you can retrieve the submodules recursively by running <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">submodule</span> <span class="pre">update</span> <span class="pre">--init</span> <span class="pre">--recursive</span></code> in the main repo directory.</p>
 </section>
 </section>
 
@@ -353,8 +389,13 @@ across platforms and python versions).</p>
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">Installation</a><ul>
+<li><a class="reference internal" href="#quick-start">Quick start</a></li>
+<li><a class="reference internal" href="#virtual-environment-installation">Virtual environment installation</a><ul>
 <li><a class="reference internal" href="#conda">Conda</a></li>
-<li><a class="reference internal" href="#pip">pip</a></li>
+<li><a class="reference internal" href="#venv">Venv</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#cloning-the-repository">Cloning the Repository</a></li>
 </ul>
 </li>
 </ul>
