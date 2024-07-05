@@ -35,22 +35,22 @@ jobs:
     - name: Install Package with Relevant Dependencies
       run: |
         pip install --upgrade pip
-        pip install -r docs/requirements.txt
+        pip install -r python_docs/requirements.txt
         pip install .
 
     - name: Build HTML
       run: |
-        sphinx-build -M html docs/source/ docs/_build/
+        sphinx-build -M html python_docs/source/ python_docs/_build/
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         path:
-          docs/_build/html/
+          python_docs/_build/html/
     
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v4
       if: github.ref == 'refs/heads/main'
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: docs/_build/html
+        publish_dir: python_docs/_build/html
